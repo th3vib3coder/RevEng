@@ -1,0 +1,6 @@
+# Optional source parser support for JavaScript/TypeScript graph extraction.
+# RevEng core scripts do not require these packages; without them the
+# zero-dependency comment-aware scanner remains active.
+tree_sitter
+tree_sitter_javascript
+tree_sitter_typescript

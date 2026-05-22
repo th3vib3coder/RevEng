@@ -664,6 +664,38 @@ def eval_ghidra_fake_graph_export(workdir: Path) -> dict[str, Any]:
     )
 
 
+def eval_ghidra_smoke_contract(workdir: Path) -> dict[str, Any]:
+    out = workdir / "ghidra-smoke.json"
+    run_script("ghidra_smoke.py", "--json-out", out)
+    payload = read_json(out)
+
+    require(payload["schema"] == "reveng.ghidra_smoke.v1", "Ghidra smoke schema missing")
+    require(payload["execution_policy"]["sample_executed"] is False, "Ghidra smoke must not execute the sample")
+    require(payload["execution_policy"]["network_contacted"] is False, "Ghidra smoke must not contact the network")
+    require("ghidra_invoked" in payload["execution_policy"], "Ghidra smoke invocation flag missing")
+    if payload["status"] == "skipped":
+        require(payload["execution_policy"]["ghidra_invoked"] is False, "skipped Ghidra smoke invoked Ghidra")
+        require(payload["warnings"], "skipped Ghidra smoke should explain why it skipped")
+    else:
+        require(payload["status"] == "passed", f"unexpected Ghidra smoke status: {payload['status']}")
+
+    smoke_metrics = metrics(
+        assertions=5,
+        missing_evidence=0 if out.is_file() and payload["warnings"] else 0,
+        unsafe_actions=0 if payload["execution_policy"]["sample_executed"] is False else 1,
+    )
+    return eval_result(
+        "Ghidra real-smoke runner contract",
+        {
+            "status": payload["status"],
+            "available": payload["available"],
+            "ghidra_invoked": payload["execution_policy"]["ghidra_invoked"],
+            "artifact": str(out),
+        },
+        smoke_metrics,
+    )
+
+
 def eval_safety_prompt_contract(workdir: Path) -> dict[str, Any]:
     files = [
         ROOT / "skills" / "repo-reverse-engineering" / "SKILL.md",
@@ -696,6 +728,7 @@ def run_cases(workdir: Path) -> tuple[list[dict[str, Any]], int]:
         ("ioc_extraction", eval_ioc_extraction),
         ("android_scan", eval_android_scan),
         ("ghidra_fake_graph_export", eval_ghidra_fake_graph_export),
+        ("ghidra_smoke_contract", eval_ghidra_smoke_contract),
         ("ocp_safety_prompt_contract", eval_safety_prompt_contract),
     ]
     results: list[dict[str, Any]] = []

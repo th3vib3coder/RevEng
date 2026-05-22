@@ -28,6 +28,7 @@ The current eval cases cover:
 - IOC extraction with defanged normalization, contextual version-like IPv4 confidence, and overlong-line truncation
 - Android API scanning with endpoints, auth evidence, base URLs, and oversized-file skips
 - fake Ghidra graph export with call graph, CFG, warnings, and summary formatting
+- Ghidra smoke-runner contract with structured skip when no local Ghidra runtime is available
 - OCP safety/reporting prompt contract checks for PAUSE, static-first, raw-eval gating, negative evidence, and alternate hypotheses
 
 The JSON summary uses schema `reveng.golden_evals.v1`. Every case reports:

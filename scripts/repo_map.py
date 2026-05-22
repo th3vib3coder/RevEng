@@ -185,7 +185,7 @@ def extract_symbols(text: str) -> list[str]:
     return sorted(symbols)
 
 
-def extract_routes(text: str, rel: str) -> list[dict[str, Any]]:
+def extract_routes(text: str, rel: str, language: str | None = None) -> list[dict[str, Any]]:
     routes: list[dict[str, Any]] = []
     for framework, pattern in ROUTE_PATTERNS:
         for match in pattern.finditer(text):
@@ -193,8 +193,112 @@ def extract_routes(text: str, rel: str) -> list[dict[str, Any]]:
             path = match.group(2)
             line = text[: match.start()].count("\n") + 1
             routes.append({"framework_hint": framework, "method": method, "path": path, "source": rel, "line": line})
-    routes.extend(extract_javascript_routes(text, rel))
+    if language in {"JavaScript", "TypeScript"} or Path(rel).suffix.lower() in JAVASCRIPT_SUFFIXES:
+        routes.extend(extract_javascript_routes(text, rel))
     return routes
+
+
+def tree_sitter_language_for_path(rel: str) -> str:
+    suffix = Path(rel).suffix.lower()
+    if suffix == ".tsx":
+        return "tsx"
+    if suffix == ".ts":
+        return "typescript"
+    return "javascript"
+
+
+def build_tree_sitter_parser(language_name: str) -> Any | None:
+    try:
+        from tree_sitter import Language, Parser
+    except Exception:
+        return None
+    try:
+        if language_name == "typescript":
+            import tree_sitter_typescript as grammar
+
+            raw_language = grammar.language_typescript()
+        elif language_name == "tsx":
+            import tree_sitter_typescript as grammar
+
+            raw_language = grammar.language_tsx()
+        else:
+            import tree_sitter_javascript as grammar
+
+            raw_language = grammar.language()
+        try:
+            language = Language(raw_language)
+        except TypeError:
+            language = raw_language
+        try:
+            return Parser(language)
+        except TypeError:
+            parser = Parser()
+            if hasattr(parser, "set_language"):
+                parser.set_language(language)
+            else:
+                parser.language = language
+            return parser
+    except Exception:
+        return None
+
+
+def node_text(source: bytes, node: Any) -> str:
+    return source[int(node.start_byte) : int(node.end_byte)].decode("utf-8", errors="replace")
+
+
+def first_tree_sitter_string(source: bytes, node: Any) -> str | None:
+    if getattr(node, "type", "") in {"string", "template_string", "string_fragment"}:
+        parsed = parse_js_string_literal(node_text(source, node), 0)
+        if parsed is not None:
+            return parsed[0]
+    for child in getattr(node, "children", []):
+        value = first_tree_sitter_string(source, child)
+        if value is not None:
+            return value
+    return None
+
+
+def tree_sitter_javascript_analysis(text: str, rel: str, parser: Any) -> dict[str, Any] | None:
+    try:
+        source = text.encode("utf-8")
+        tree = parser.parse(source)
+        root = tree.root_node
+    except Exception:
+        return None
+    imports: set[str] = set()
+    routes: list[dict[str, Any]] = []
+
+    def visit(node: Any) -> None:
+        node_type = getattr(node, "type", "")
+        snippet = node_text(source, node).lstrip()
+        if node_type == "import_statement" or (node_type == "export_statement" and re.search(r"\bfrom\b", snippet)):
+            value = first_tree_sitter_string(source, node)
+            if value:
+                imports.add(value)
+        elif node_type == "call_expression":
+            if snippet.startswith("require"):
+                value = first_tree_sitter_string(source, node)
+                if value:
+                    imports.add(value)
+            match = JS_ROUTE_PREFIX.match(snippet)
+            if match:
+                path = first_tree_sitter_string(source, node)
+                if path:
+                    start_point = getattr(node, "start_point", (text[: int(node.start_byte)].count("\n"), 0))
+                    routes.append(
+                        {
+                            "framework_hint": "tree-sitter-javascript",
+                            "method": match.group(1).upper(),
+                            "path": path,
+                            "source": rel,
+                            "line": int(start_point[0]) + 1,
+                        }
+                    )
+        for child in getattr(node, "children", []):
+            visit(child)
+
+    visit(root)
+    return {"imports": sorted(imports), "routes": sorted(routes, key=lambda item: (item["source"], item["line"], item["method"], item["path"]))}
 
 
 def skip_js_string(text: str, start: int) -> int:
@@ -231,6 +335,11 @@ def parse_js_string_literal(text: str, start: int) -> tuple[str, int] | None:
 
 
 def extract_javascript_routes(text: str, rel: str) -> list[dict[str, Any]]:
+    parser = build_tree_sitter_parser(tree_sitter_language_for_path(rel))
+    if parser is not None:
+        analysis = tree_sitter_javascript_analysis(text, rel, parser)
+        if analysis is not None:
+            return analysis["routes"]
     routes: list[dict[str, Any]] = []
     i = 0
     while i < len(text):
@@ -315,7 +424,12 @@ def first_js_string_literal(text: str, start: int, end: int) -> str | None:
     return None
 
 
-def extract_javascript_imports(text: str) -> list[str]:
+def extract_javascript_imports(text: str, rel: str = "") -> list[str]:
+    parser = build_tree_sitter_parser(tree_sitter_language_for_path(rel))
+    if parser is not None:
+        analysis = tree_sitter_javascript_analysis(text, rel, parser)
+        if analysis is not None:
+            return analysis["imports"]
     imports: set[str] = set()
     i = 0
     while i < len(text):
@@ -480,7 +594,7 @@ def build_source_module_graph(
         "metrics": module_graph_metrics([module for module in sorted(modules_by_name) if module], edges),
         "limitations": [
             "Source module graph is static and import-derived; dynamic imports and runtime path mutation are not resolved.",
-            "Python uses AST imports when parseable; JavaScript/TypeScript use a zero-dependency comment-aware static scanner, not a full parser.",
+            "Python uses AST imports when parseable; JavaScript/TypeScript use optional Tree-sitter when installed, otherwise a zero-dependency comment-aware static scanner.",
         ],
     }
 
@@ -813,6 +927,7 @@ def build_map(root: Path) -> dict[str, Any]:
 
         if path.suffix.lower() in SOURCE_MODULE_SUFFIXES:
             text = read_text(path)
+            language = detect_language(path)
             definitions = python_definitions(text) if path.suffix.lower() in PYTHON_SUFFIXES else None
             if definitions is not None:
                 module = python_module_name(root, path, python_source_roots)
@@ -831,13 +946,13 @@ def build_map(root: Path) -> dict[str, Any]:
                 file_symbols = extract_symbols(text)
                 if file_symbols:
                     symbols_by_path[rel] = file_symbols
-                file_imports = extract_javascript_imports(text) if path.suffix.lower() in JAVASCRIPT_SUFFIXES else extract_imports(text)
+                file_imports = extract_javascript_imports(text, rel) if path.suffix.lower() in JAVASCRIPT_SUFFIXES else extract_imports(text)
                 module = source_module_name(root, path) if path.suffix.lower() in JAVASCRIPT_SUFFIXES else ""
                 if module:
                     source_imports[module] = file_imports
                 if file_imports:
                     imports.append({"path": rel, "imports": file_imports})
-                routes.extend(extract_routes(text, rel))
+                routes.extend(extract_routes(text, rel, language))
             risks.extend(static_risks(root, rel, text, kind))
         elif kind in {"manifest", "plugin_manifest", "config"}:
             risks.extend(static_risks(root, rel, read_text(path), kind))
@@ -864,7 +979,7 @@ def build_map(root: Path) -> dict[str, Any]:
         "risks": sorted(risks, key=lambda item: (item["source"], item["kind"])),
         "limitations": [
             "Static analysis only; repository code, tests, package managers, containers, and build scripts were not executed.",
-            "Python routes/imports use AST when parseable; JavaScript/TypeScript relative imports use a comment-aware static scanner; invalid Python and non-JS languages fallback to regex candidates and require human confirmation for complex frameworks.",
+            "Python routes/imports use AST when parseable; JavaScript/TypeScript relative imports use optional Tree-sitter when installed and otherwise a comment-aware static scanner; invalid Python and non-JS languages fallback to regex candidates and require human confirmation for complex frameworks.",
         ],
     }
 

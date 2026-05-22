@@ -13,6 +13,20 @@ The helper scripts use Python standard library only.
 
 Optional tools improve evidence quality but are not required for core JSON outputs.
 
+## Optional Source Parsers
+
+- `tree_sitter`
+- `tree_sitter_javascript`
+- `tree_sitter_typescript`
+
+When present, RevEng uses Tree-sitter for JavaScript/TypeScript import and route extraction. When absent, it keeps the standard-library comment-aware scanner.
+
+Install them with:
+
+```bash
+python -m pip install -r requirements-optional.txt
+```
+
 ## Android Tools
 
 - JDK 17+
@@ -25,6 +39,8 @@ Optional tools improve evidence quality but are not required for core JSON outpu
 - Optional PyGhidra for Python-driven analysis
 
 The plugin does not download, install, or run these tools automatically.
+
+`scripts/ghidra_smoke.py` can verify the local `analyzeHeadless` path and, only with explicit `--run`, import a benign local file into a temporary headless Ghidra project and run `ghidra_export_summary.py`. Without `--run` or without Ghidra, it emits a structured skipped report.
 
 ## External Adapter Discovery
 

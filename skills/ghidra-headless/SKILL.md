@@ -12,6 +12,7 @@ Guide repeatable static analysis with a local Ghidra installation. The plugin do
 1. Confirm Ghidra or PyGhidra is installed locally.
    - Prefer `python3 scripts/re_tool_check.py --json` and inspect the `adapters.ghidra` and `adapters.reva` records.
    - Adapter discovery is PATH lookup only; it does not authorize running Ghidra.
+   - Use `python3 scripts/ghidra_smoke.py --json-out ghidra-smoke.json` for a discovery-only smoke report.
 2. Create or reuse a headless project outside the analyzed sample directory.
 3. Use `analyzeHeadless` with `-import`, `-scriptPath`, and `-postScript` when appropriate.
 4. Use `scripts/ghidra_export_summary.py` as a PyGhidra/Ghidra script to export program metadata, functions, imports, exports, strings, xrefs, call graph, CFGs, compact graph summaries, and warnings.
@@ -23,6 +24,12 @@ python3 scripts/ghidra_export_summary.py --json-out ghidra_summary.json
 ```
 
 This script exits cleanly with a diagnostic outside a Ghidra/PyGhidra runtime.
+
+Run a real smoke only after operator approval and with a benign local file:
+
+```bash
+python3 scripts/ghidra_smoke.py --run --sample sample.bin --json-out ghidra-smoke.json --export-json ghidra_summary.json
+```
 
 ## Safety
 

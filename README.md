@@ -85,6 +85,14 @@ It emits:
 
 The JSONL corpus is ready for downstream RAG/MCP ingestion. RevEng also ships a read-only stdio MCP server over that corpus for agentic querying with cursor pagination, structured outputs, and a uniform result metadata envelope.
 
+JavaScript/TypeScript graph extraction uses optional Tree-sitter parsers when installed (`tree_sitter`, `tree_sitter_javascript`, and for TypeScript `tree_sitter_typescript`). Without them, RevEng falls back to its zero-dependency comment-aware scanner.
+
+Install optional parser support with:
+
+```bash
+python3 -m pip install -r requirements-optional.txt
+```
+
 ### `binary-triage`
 
 Performs static triage of unknown binaries, including PE, ELF, Mach-O, DLL/shared library files, firmware blobs, ZIP/APK/JAR-like archives, and other opaque files.
@@ -191,6 +199,7 @@ python3 scripts/reveng.py extract-iocs evidence.txt --out iocs.json
 python3 scripts/reveng.py android-scan /path/to/decompiled --out android.json
 python3 scripts/reveng.py check-tools --json
 python3 scripts/reveng.py serve-corpus case/repo_corpus.jsonl --repo-map case/repo_map.json
+python3 scripts/reveng.py ghidra-smoke --json-out ghidra-smoke.json
 ```
 
 On Windows, use `python` if `python3` is absent.
@@ -268,6 +277,22 @@ python3 scripts/ghidra_export_summary.py --json-out ghidra_summary.json
 
 On Windows, use `python` if `python3` is not available.
 
+### Ghidra Smoke Runner
+
+```bash
+python3 scripts/ghidra_smoke.py --json-out ghidra-smoke.json
+```
+
+By default this is discovery-only and never launches Ghidra. It emits a structured `skipped` result when `analyzeHeadless` is unavailable or when `--run` is not provided.
+
+To run a real local smoke test against a benign local file after operator approval:
+
+```bash
+python3 scripts/ghidra_smoke.py --run --sample /path/to/benign/sample --json-out ghidra-smoke.json --export-json ghidra_summary.json
+```
+
+The smoke imports the file into Ghidra headless and runs `ghidra_export_summary.py`; it does not execute the sample.
+
 ## Output Schemas
 
 Schema and reporting documentation lives in `references/output-schemas.md`, `references/repo-analysis-schema.md`, `references/graph-analysis-schema.md`, `references/external-adapter-schema.md`, and `references/report-templates.md`.
@@ -283,6 +308,7 @@ Important outputs:
 - `iocs.json`: grouped traceable IOC report.
 - `android_api.json`: Android API surface report.
 - `ghidra_summary.json`: Ghidra static summary, xrefs, call graph, and CFGs when run in Ghidra/PyGhidra.
+- `ghidra-smoke.json`: conditional real-smoke status for local `analyzeHeadless`; skipped without Ghidra or without explicit `--run`.
 - `re_tool_check.py --json`: local static tool and optional external adapter inventory with safety classes.
 
 ## Installation
@@ -348,6 +374,7 @@ The test suite covers:
 - IOC extraction
 - Android API scan
 - Ghidra wrapper behavior outside Ghidra and fake-object graph export
+- Ghidra smoke-runner contract, including structured skip when Ghidra is unavailable
 - absence of local absolute paths in shipped files
 - golden end-to-end workflow invariants with labeled FP/FN/missing-evidence/unsafe-action metrics
 - stdio MCP corpus tool discovery, paginated query behavior, split text/structured responses, and tool-visible schema errors

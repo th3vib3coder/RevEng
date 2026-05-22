@@ -290,6 +290,71 @@ def test_repo_map_builds_internal_javascript_module_graph(tmp_path: Path) -> Non
     assert ("src.util", "./template-only.js") not in external_imports
 
 
+class FakeTreeSitterNode:
+    def __init__(self, text: str, node_type: str, source: str, children: list["FakeTreeSitterNode"] | None = None) -> None:
+        self.type = node_type
+        self.start_byte = source.index(text)
+        self.end_byte = self.start_byte + len(text.encode("utf-8"))
+        self.start_point = (source[: self.start_byte].count("\n"), 0)
+        self.children = children or []
+
+
+class FakeTreeSitterTree:
+    def __init__(self, root_node: FakeTreeSitterNode) -> None:
+        self.root_node = root_node
+
+
+class FakeTreeSitterParser:
+    def __init__(self, root_node: FakeTreeSitterNode) -> None:
+        self.root_node = root_node
+
+    def parse(self, _source: bytes) -> FakeTreeSitterTree:
+        return FakeTreeSitterTree(self.root_node)
+
+
+def test_tree_sitter_javascript_analysis_reads_ast_nodes_not_comments_or_strings() -> None:
+    repo_map = load_script_module("repo_map.py")
+    source = """
+// import ignored from "./comment-only.js";
+const fake = "app.get('/string-only', handler)";
+import { health } from "./util.js";
+const express = require("express");
+app.get("/health", handler);
+export function health() { return "ok"; }
+""".lstrip()
+    root = FakeTreeSitterNode(
+        source,
+        "program",
+        source,
+        children=[
+            FakeTreeSitterNode("// import ignored from \"./comment-only.js\";", "comment", source),
+            FakeTreeSitterNode('"app.get(\'/string-only\', handler)"', "string", source),
+            FakeTreeSitterNode(
+                'import { health } from "./util.js";',
+                "import_statement",
+                source,
+                [FakeTreeSitterNode('"./util.js"', "string", source)],
+            ),
+            FakeTreeSitterNode('require("express")', "call_expression", source, [FakeTreeSitterNode('"express"', "string", source)]),
+            FakeTreeSitterNode('app.get("/health", handler)', "call_expression", source, [FakeTreeSitterNode('"/health"', "string", source)]),
+            FakeTreeSitterNode(
+                'export function health() { return "ok"; }',
+                "export_statement",
+                source,
+                [FakeTreeSitterNode('"ok"', "string", source)],
+            ),
+        ],
+    )
+
+    analysis = repo_map.tree_sitter_javascript_analysis(source, "src/server.js", FakeTreeSitterParser(root))
+
+    assert analysis["imports"] == ["./util.js", "express"]
+    assert [item["path"] for item in analysis["routes"]] == ["/health"]
+    assert "./comment-only.js" not in analysis["imports"]
+    assert "ok" not in analysis["imports"]
+    assert "/string-only" not in {item["path"] for item in analysis["routes"]}
+
+
 def test_repo_map_emits_general_repo_graph(tmp_path: Path) -> None:
     repo = make_fixture(tmp_path)
     out = tmp_path / "repo_map.json"

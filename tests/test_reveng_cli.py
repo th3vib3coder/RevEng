@@ -54,3 +54,15 @@ def test_reveng_triage_binary_dispatches(tmp_path: Path) -> None:
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["file_type"] == "PE/DOS MZ"
     assert payload["hashes"]["sha256"]
+
+
+def test_reveng_ghidra_smoke_dispatches_without_invoking_ghidra(tmp_path: Path) -> None:
+    out = tmp_path / "ghidra-smoke.json"
+
+    run_cli("ghidra-smoke", "--json-out", str(out))
+
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["schema"] == "reveng.ghidra_smoke.v1"
+    assert payload["execution_policy"]["sample_executed"] is False
+    if payload["status"] == "skipped":
+        assert payload["execution_policy"]["ghidra_invoked"] is False

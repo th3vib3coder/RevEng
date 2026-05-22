@@ -36,7 +36,7 @@ Acceptance:
 
 ## Phase 2: Graph-Aware Source Repository Analysis
 
-Status: implemented for zero-dependency source-repo analysis.
+Status: implemented for source-repo analysis with zero-dependency fallback and optional Tree-sitter JS/TS parsing when installed.
 
 Implemented:
 
@@ -44,7 +44,7 @@ Implemented:
 - Python source analysis uses AST for imports, symbols, classes, functions, async functions, and route decorators when parseable.
 - Python module naming handles common `src/` layouts declared in `pyproject.toml` or indicated by package markers, so imports such as `re_agent.*` resolve to `src/re_agent/*`.
 - Python module naming also handles top-level script roots such as `scripts/` when files import sibling helper modules as top-level names.
-- `module_graph` also includes JavaScript/TypeScript modules and resolves relative imports using a zero-dependency comment-aware static scanner.
+- `module_graph` also includes JavaScript/TypeScript modules and resolves relative imports using optional Tree-sitter when installed, otherwise a zero-dependency comment-aware static scanner.
 - `module_graph.metrics` includes per-module `fan_in`, `fan_out`, and import `cycles`.
 - Cycle detection uses iterative Tarjan/SCC logic to avoid recursion-limit failures on deep graphs.
 - `repo_corpus_mcp.py` exposes `reveng.module_graph` with internal edges, external imports, hard-capped graph metrics, cursor pagination, and `truncated`.
@@ -132,7 +132,7 @@ Acceptance:
 
 ## Phase 5: Ghidra Graph Export
 
-Status: implemented with fake-object fixtures and outside-Ghidra syntax validation; real Ghidra smoke remains environment-dependent.
+Status: implemented with fake-object fixtures, outside-Ghidra syntax validation, and a conditional real-smoke runner. Real execution still depends on a local Ghidra installation.
 
 Implemented:
 
@@ -152,6 +152,7 @@ Tests:
 - Syntax compile test outside Ghidra.
 - Fake Ghidra object fixture for CFG/FCG serialization.
 - Golden fixture for graph summary formatting.
+- `ghidra_smoke.py` contract test: structured skip without local Ghidra, no invocation unless `--run` is explicit.
 
 Acceptance:
 
@@ -171,6 +172,7 @@ Implemented:
   - IOC adversarial strings
   - Android oversized source
   - Ghidra fake graph export
+  - Ghidra smoke-runner contract
   - OCP safety/reporting prompt contract
 - Every case reports `capability`, `status`, and metrics for:
   - assertions
@@ -209,22 +211,24 @@ Acceptance:
 
 ## Phase 8: Optional CLI
 
-Status: later.
+Status: implemented.
 
-Tasks:
+Implemented:
 
-- Add a `reveng` CLI wrapper:
+- Added a `reveng` CLI wrapper:
   - `reveng analyze-repo`
   - `reveng serve-corpus`
   - `reveng triage-binary`
   - `reveng extract-iocs`
   - `reveng check-tools`
-- Keep existing scripts as the implementation backend.
+  - `reveng android-scan`
+  - `reveng ghidra-smoke`
+- Kept existing scripts as the implementation backend.
 
 Tests:
 
-- CLI smoke tests call each subcommand on fixtures.
-- CLI output paths are deterministic.
+- CLI smoke tests call representative subcommands on fixtures.
+- Ghidra smoke dispatch is discovery-only unless `--run` is explicit.
 
 Acceptance:
 
@@ -235,18 +239,18 @@ Acceptance:
 Current status:
 
 1. Phase 1 is implemented for source repositories and file targets.
-2. Phase 2 is implemented for the zero-dependency source-repo graph layer.
+2. Phase 2 is implemented for the source-repo graph layer with zero-dependency fallback and optional Tree-sitter JS/TS support.
 3. Phase 3 is implemented for current read-only corpus/graph MCP tools.
 4. Phase 4 is implemented for discovery-only external adapter inventory.
-5. Phase 5 is implemented with fake Ghidra graph fixtures; real smoke test requires a local Ghidra/PyGhidra install.
+5. Phase 5 is implemented with fake Ghidra graph fixtures and a conditional smoke runner; real smoke execution still requires a local Ghidra/PyGhidra install.
 6. Phase 6 is implemented for labeled zero-dependency mini-benchmarks.
 7. Phase 7 is implemented as shared report templates.
+8. Phase 8 is implemented as a unified static-first CLI.
 
 Next implementation targets:
 
-1. Optional CLI wrapper.
-2. Real Ghidra/PyGhidra smoke test when an installation is available.
-3. Optional full external parser support (for example tree-sitter JS/TS AST) only if zero-dependency is relaxed.
+1. Run the real Ghidra/PyGhidra smoke when an installation is available.
+2. Validate optional Tree-sitter JS/TS parsing against the real packages when that dependency is installed in CI or locally.
 
 Reason:
 

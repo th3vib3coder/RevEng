@@ -86,6 +86,28 @@ def cmd_serve_corpus(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_ghidra_smoke(args: argparse.Namespace) -> int:
+    extra: list[object] = []
+    if args.json_out:
+        extra.extend(["--json-out", args.json_out])
+    if args.run:
+        extra.append("--run")
+    if args.sample:
+        extra.extend(["--sample", args.sample])
+    if args.export_json:
+        extra.extend(["--export-json", args.export_json])
+    if args.project_dir:
+        extra.extend(["--project-dir", args.project_dir])
+    if args.project_name:
+        extra.extend(["--project-name", args.project_name])
+    if args.analyze_headless:
+        extra.extend(["--analyze-headless", args.analyze_headless])
+    if args.timeout is not None:
+        extra.extend(["--timeout", args.timeout])
+    run_script("ghidra_smoke.py", *extra)
+    return 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="reveng",
@@ -123,6 +145,17 @@ def build_parser() -> argparse.ArgumentParser:
     serve.add_argument("corpus")
     serve.add_argument("--repo-map")
     serve.set_defaults(func=cmd_serve_corpus)
+
+    ghidra = sub.add_parser("ghidra-smoke", help="Discovery-only Ghidra smoke; launches analyzeHeadless only with --run")
+    ghidra.add_argument("--json-out", required=True)
+    ghidra.add_argument("--run", action="store_true")
+    ghidra.add_argument("--sample")
+    ghidra.add_argument("--export-json")
+    ghidra.add_argument("--project-dir")
+    ghidra.add_argument("--project-name", default="reveng-smoke")
+    ghidra.add_argument("--analyze-headless")
+    ghidra.add_argument("--timeout", type=int, default=120)
+    ghidra.set_defaults(func=cmd_ghidra_smoke)
 
     return parser
 

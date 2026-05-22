@@ -178,6 +178,86 @@ def test_ghidra_export_summary_fails_cleanly_outside_ghidra(tmp_path: Path) -> N
     assert payload["analysis_warnings"]
 
 
+def test_ghidra_smoke_skips_without_local_ghidra_and_does_not_invoke(tmp_path: Path) -> None:
+    out = tmp_path / "ghidra-smoke.json"
+
+    result = run_script("ghidra_smoke.py", "--json-out", str(out), check=False)
+
+    assert result.returncode == 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["schema"] == "reveng.ghidra_smoke.v1"
+    assert payload["status"] in {"skipped", "passed"}
+    if payload["status"] == "skipped":
+        assert payload["execution_policy"]["ghidra_invoked"] is False
+        assert payload["execution_policy"]["sample_executed"] is False
+        assert payload["warnings"]
+
+
+def test_ghidra_smoke_requires_explicit_run_even_when_tool_path_is_known(tmp_path: Path) -> None:
+    out = tmp_path / "ghidra-smoke.json"
+
+    result = run_script(
+        "ghidra_smoke.py",
+        "--analyze-headless",
+        "/fake/ghidra/support/analyzeHeadless",
+        "--json-out",
+        str(out),
+        check=False,
+    )
+
+    assert result.returncode == 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["status"] == "skipped"
+    assert payload["available"] is True
+    assert payload["execution_policy"]["ghidra_invoked"] is False
+    assert "--run" in " ".join(payload["warnings"])
+
+
+def test_ghidra_smoke_builds_headless_export_command(tmp_path: Path) -> None:
+    ghidra_smoke = load_script_module("ghidra_smoke.py")
+    command = ghidra_smoke.build_analyze_headless_command(
+        analyze_headless="/opt/ghidra/support/analyzeHeadless",
+        project_dir=tmp_path / "project",
+        project_name="reveng-smoke",
+        sample=tmp_path / "sample.bin",
+        export_json=tmp_path / "ghidra_summary.json",
+    )
+
+    assert command[:3] == ["/opt/ghidra/support/analyzeHeadless", str(tmp_path / "project"), "reveng-smoke"]
+    assert "-import" in command
+    assert str(tmp_path / "sample.bin") in command
+    assert "-scriptPath" in command
+    assert str(ROOT / "scripts") in command
+    assert "-postScript" in command
+    assert "ghidra_export_summary.py" in command
+    assert "--json-out" in command
+
+
+def test_ghidra_smoke_bad_explicit_tool_path_returns_structured_failure(tmp_path: Path) -> None:
+    sample = tmp_path / "benign.bin"
+    sample.write_bytes(b"MZ" + b"\x00" * 16)
+    out = tmp_path / "ghidra-smoke.json"
+
+    result = run_script(
+        "ghidra_smoke.py",
+        "--analyze-headless",
+        str(tmp_path / "missing-analyzeHeadless"),
+        "--run",
+        "--sample",
+        str(sample),
+        "--json-out",
+        str(out),
+        check=False,
+    )
+
+    assert result.returncode != 0
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload["status"] == "failed"
+    assert payload["execution_policy"]["ghidra_invoked"] is True
+    assert payload["execution_policy"]["sample_executed"] is False
+    assert any("failed to launch" in item.lower() for item in payload["warnings"])
+
+
 class FakeAddress:
     def __init__(self, value: str) -> None:
         self.value = value

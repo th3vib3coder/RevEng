@@ -54,6 +54,10 @@ JSON emitted by `scripts/run_golden_evals.py --json-out`. The top-level `schema`
 
 JSON with `program`, `language_id`, `compiler_spec_id`, `functions`, `imports`, `exports`, `strings`, `xrefs`, `call_graph`, `function_cfgs`, `graph_summaries`, and `analysis_warnings`. Graph fields are best-effort and may be empty with warnings outside a compatible Ghidra/PyGhidra runtime.
 
+## ghidra_smoke_report
+
+JSON emitted by `scripts/ghidra_smoke.py`. The top-level `schema` is `reveng.ghidra_smoke.v1`. The report includes `status` (`skipped`, `passed`, or `failed`), `available`, `discovery`, `run_requested`, `export_json`, `command`, `returncode`, `execution_policy`, and `warnings`. Without explicit `--run`, Ghidra is not launched and `execution_policy.ghidra_invoked` remains `false`.
+
 ## parity_report
 
 JSON with `target_function`, `source_candidates`, `signals`, `score`, `verdict`, and `review_notes`. Valid verdicts are `match`, `likely_match`, `unclear`, and `not_match`.
