@@ -67,6 +67,11 @@ golden-cli = "pkg.cli:main"
     write_text(
         repo / "pkg" / "cli.py",
         """
+'''
+import smuggled_import
+def smuggled_symbol():
+    pass
+'''
 from fastapi import FastAPI
 import requests
 
@@ -153,6 +158,8 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     require(records["pkg/cli.py"]["sha256"] == cli_hash, "corpus hash mismatch")
     require("main" in records["pkg/cli.py"]["symbols"], "Python symbol missing from corpus")
     require("requests" in records["pkg/cli.py"]["imports"], "Python import missing from corpus")
+    require("smuggled_symbol" not in records["pkg/cli.py"]["symbols"], "AST symbols leaked a docstring def")
+    require("smuggled_import" not in records["pkg/cli.py"]["imports"], "AST imports leaked a docstring import")
 
     return {
         "inventory_files": inventory["file_count"],

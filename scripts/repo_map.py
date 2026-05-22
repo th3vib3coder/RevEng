@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from repo_common import classify_kind, iter_repo_files, load_json, read_text, repo_relative, write_json
+from repo_common import classify_kind, iter_repo_files, load_json, python_definitions, read_text, repo_relative, write_json
 
 try:
     import tomllib
@@ -171,10 +171,17 @@ def build_map(root: Path) -> dict[str, Any]:
 
         if path.suffix.lower() in {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
             text = read_text(path)
-            file_imports = extract_imports(text)
-            if file_imports:
-                imports.append({"path": rel, "imports": file_imports})
-            routes.extend(extract_routes(text, rel))
+            definitions = python_definitions(text) if path.suffix.lower() in {".py", ".pyi"} else None
+            if definitions is not None:
+                if definitions["imports"]:
+                    imports.append({"path": rel, "imports": definitions["imports"]})
+                for route in definitions["routes"]:
+                    routes.append({"framework_hint": "python", "method": route["method"], "path": route["path"], "source": rel, "line": route["line"]})
+            else:
+                file_imports = extract_imports(text)
+                if file_imports:
+                    imports.append({"path": rel, "imports": file_imports})
+                routes.extend(extract_routes(text, rel))
             risks.extend(static_risks(root, rel, text, kind))
         elif kind in {"manifest", "plugin_manifest", "config"}:
             risks.extend(static_risks(root, rel, read_text(path), kind))

@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ast
 import hashlib
 import json
 import os
@@ -153,6 +154,50 @@ def read_text(path: Path, max_bytes: int = 500_000) -> str:
     with path.open("rb") as handle:
         data = handle.read(max_bytes)
     return data.decode("utf-8", errors="replace")
+
+
+def python_definitions(text: str) -> dict[str, Any] | None:
+    """Parse Python source via AST -> symbols, imports, and decorator routes.
+
+    Returns None when the text is not parseable Python so callers can fall back
+    to regex extraction. The AST avoids false positives from code-like strings,
+    docstrings, and comments that line-anchored regexes would pick up.
+    """
+    try:
+        tree = ast.parse(text)
+    except (SyntaxError, ValueError):
+        return None
+    symbols: set[str] = set()
+    imports: set[str] = set()
+    routes: list[dict[str, Any]] = []
+    route_methods = {"get", "post", "put", "delete", "patch", "route", "use"}
+    for node in ast.walk(tree):
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            symbols.add(node.name)
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            for decorator in node.decorator_list:
+                if (
+                    isinstance(decorator, ast.Call)
+                    and isinstance(decorator.func, ast.Attribute)
+                    and decorator.func.attr.lower() in route_methods
+                    and decorator.args
+                    and isinstance(decorator.args[0], ast.Constant)
+                    and isinstance(decorator.args[0].value, str)
+                ):
+                    routes.append(
+                        {
+                            "method": decorator.func.attr.upper(),
+                            "path": decorator.args[0].value,
+                            "line": decorator.lineno,
+                        }
+                    )
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                imports.add(alias.name)
+        elif isinstance(node, ast.ImportFrom):
+            if node.module:
+                imports.add(node.module)
+    return {"symbols": sorted(symbols), "imports": sorted(imports), "routes": routes}
 
 
 def detect_language(path: Path) -> str:

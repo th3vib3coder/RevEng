@@ -6,7 +6,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from repo_common import classify_kind, detect_language, iter_repo_files, looks_binary, read_text, repo_relative, sha256_file
+from repo_common import classify_kind, detect_language, iter_repo_files, looks_binary, python_definitions, read_text, repo_relative, sha256_file
 
 
 SYMBOL_PATTERNS = [
@@ -83,6 +83,13 @@ def build_records(root: Path, max_file_bytes: int) -> list[dict[str, Any]]:
         text = read_text(path, max_bytes=max_file_bytes)
         kind = classify_kind(root, path)
         language = detect_language(path)
+        definitions = python_definitions(text) if path.suffix.lower() in {".py", ".pyi"} else None
+        if definitions is not None:
+            symbols = definitions["symbols"]
+            file_imports = definitions["imports"]
+        else:
+            symbols = extract_symbols(text)
+            file_imports = extract_imports(text)
         records.append(
             {
                 "path": rel,
@@ -90,8 +97,8 @@ def build_records(root: Path, max_file_bytes: int) -> list[dict[str, Any]]:
                 "language": language,
                 "sha256": sha256_file(path),
                 "summary": summarize(rel, kind, language, text),
-                "symbols": extract_symbols(text),
-                "imports": extract_imports(text),
+                "symbols": symbols,
+                "imports": file_imports,
                 "evidence": evidence_lines(text),
             }
         )

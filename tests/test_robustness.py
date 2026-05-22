@@ -158,3 +158,57 @@ def test_android_api_scan_skips_oversized_files(tmp_path: Path) -> None:
     assert "Api.kt" in payload.get("skipped_files", [])
     assert payload["endpoints"] == []
     assert payload["base_urls"] == []
+
+
+def test_repo_corpus_symbols_ignore_docstring_definitions(tmp_path: Path) -> None:
+    repo = tmp_path / "r"
+    repo.mkdir()
+    (repo / "m.py").write_text(
+        '"""\n'
+        "def fake_in_docstring():\n"
+        "    pass\n"
+        '"""\n'
+        "import real_module\n"
+        "def real_fn():\n"
+        "    pass\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "c.jsonl"
+    run_script("repo_corpus_export.py", str(repo), "--jsonl-out", str(out))
+
+    record = next(
+        json.loads(line)
+        for line in out.read_text(encoding="utf-8").splitlines()
+        if line.strip() and json.loads(line)["path"] == "m.py"
+    )
+    assert "real_fn" in record["symbols"]
+    assert "fake_in_docstring" not in record["symbols"]
+    assert "real_module" in record["imports"]
+
+
+def test_repo_map_python_imports_and_routes_use_ast(tmp_path: Path) -> None:
+    repo = tmp_path / "r"
+    repo.mkdir()
+    (repo / "api.py").write_text(
+        '"""\n'
+        "import evil_in_docstring\n"
+        '@app.get("/fake-route")\n'
+        "def fake():\n"
+        "    pass\n"
+        '"""\n'
+        "import real_dep\n"
+        '@app.get("/real-route")\n'
+        "def real():\n"
+        "    return 1\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "map.json"
+    run_script("repo_map.py", str(repo), "--json-out", str(out))
+
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    import_names = {name for entry in payload["imports"] for name in entry["imports"]}
+    route_paths = {route["path"] for route in payload["routes"]}
+    assert "real_dep" in import_names
+    assert "evil_in_docstring" not in import_names
+    assert "/real-route" in route_paths
+    assert "/fake-route" not in route_paths
