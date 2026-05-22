@@ -15,14 +15,14 @@ This plan is derived from `060-atomic-ideas-for-reveng.md`. It is not an ACCEPT 
 
 ## Phase 1: Research Ledger And Case Manifests
 
-Status: planned.
+Status: implemented for source-repo cases.
 
 Tasks:
 
-- Add `references/case-manifest-schema.md`.
-- Add a helper to create `case_manifest.json` for repo and binary analysis outputs.
-- Record input paths, hashes, script versions, output artifact paths, caps, ignored paths, and warnings.
-- Update repo skill to require a case directory for deep analysis.
+- Added `references/case-manifest-schema.md`.
+- Added `scripts/case_manifest.py` to create `case_manifest.json` for source repository analysis outputs.
+- Records input path, stable target-derived case ID, target content hash, artifact hashes, helper script hashes, caps, ignored paths, warnings, and static-first safety posture.
+- Updated repo skill to use a case directory for deep analysis.
 
 Tests:
 
@@ -246,4 +246,3 @@ Reason:
 - Zero proprietary dependencies.
 - Directly strengthens the already-existing corpus MCP.
 - Provides testable groundwork for later Ghidra/IDA/radare adapters.
-

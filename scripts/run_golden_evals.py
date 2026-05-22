@@ -167,13 +167,32 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     inventory_out = out_dir / "repo_inventory.json"
     map_out = out_dir / "repo_map.json"
     corpus_out = out_dir / "repo_corpus.jsonl"
+    manifest_out = out_dir / "case_manifest.json"
 
     run_script("repo_inventory.py", repo, "--json-out", inventory_out)
     run_script("repo_map.py", repo, "--json-out", map_out)
     run_script("repo_corpus_export.py", repo, "--jsonl-out", corpus_out)
+    run_script(
+        "case_manifest.py",
+        "--case-dir",
+        out_dir,
+        "--target",
+        repo,
+        "--artifact",
+        f"repo_inventory={inventory_out}",
+        "--artifact",
+        f"repo_map={map_out}",
+        "--artifact",
+        f"repo_corpus={corpus_out}",
+        "--cap",
+        "repo_corpus_max_file_bytes=500000",
+        "--json-out",
+        manifest_out,
+    )
 
     inventory = read_json(inventory_out)
     repo_map = read_json(map_out)
+    case_manifest = read_json(manifest_out)
     corpus = read_jsonl(corpus_out)
 
     manifest_paths = {item["path"] for item in inventory["manifests"]}
@@ -184,6 +203,13 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     require(".claude-plugin/plugin.json" in manifest_paths, "Claude plugin manifest not detected")
     require(inventory["languages"]["Python"]["files"] >= 1, "Python language count missing")
     require(inventory["languages"]["JavaScript"]["files"] >= 1, "JavaScript language count missing")
+    require(case_manifest["schema"] == "reveng.case_manifest.v1", "case manifest schema missing")
+    require(case_manifest["target"]["content_sha256"], "case manifest target content hash missing")
+    require(case_manifest["safety"]["executed_target_code"] is False, "case manifest must preserve static-first boundary")
+    require(
+        {item["name"] for item in case_manifest["artifacts"]} == {"repo_inventory", "repo_map", "repo_corpus"},
+        "case manifest did not index all repo artifacts",
+    )
 
     deps = {item["name"] for item in repo_map["dependencies"]}
     routes = {item["path"] for item in repo_map["routes"]}
@@ -239,6 +265,7 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
         "dependencies": sorted(deps),
         "routes": sorted(routes),
         "module_edges": len(graph_edges),
+        "case_id": case_manifest["case_id"],
         "mcp_tools_checked": True,
         "corpus_records": len(corpus),
     }

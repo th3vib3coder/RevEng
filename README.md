@@ -77,6 +77,7 @@ It maps:
 
 It emits:
 
+- `case_manifest.json`
 - `repo_inventory.json`
 - `repo_map.json`
 - `repo_corpus.jsonl`
@@ -182,15 +183,21 @@ Run scripts from the repository root.
 ### Repository Analysis
 
 ```bash
-python3 scripts/repo_inventory.py /path/to/repo --json-out repo_inventory.json
-python3 scripts/repo_map.py /path/to/repo --json-out repo_map.json
-python3 scripts/repo_corpus_export.py /path/to/repo --jsonl-out repo_corpus.jsonl
+mkdir -p case
+python3 scripts/repo_inventory.py /path/to/repo --json-out case/repo_inventory.json
+python3 scripts/repo_map.py /path/to/repo --json-out case/repo_map.json
+python3 scripts/repo_corpus_export.py /path/to/repo --jsonl-out case/repo_corpus.jsonl
+python3 scripts/case_manifest.py --case-dir case --target /path/to/repo \
+  --artifact repo_inventory=case/repo_inventory.json \
+  --artifact repo_map=case/repo_map.json \
+  --artifact repo_corpus=case/repo_corpus.jsonl \
+  --cap repo_corpus_max_file_bytes=500000
 ```
 
 Serve the generated corpus over a read-only MCP stdio server:
 
 ```bash
-python3 scripts/repo_corpus_mcp.py --corpus repo_corpus.jsonl
+python3 scripts/repo_corpus_mcp.py --corpus case/repo_corpus.jsonl
 ```
 
 The server exposes:
@@ -201,10 +208,10 @@ The server exposes:
 - `reveng.list_symbols`
 - `reveng.module_graph` (requires `--repo-map repo_map.json`)
 
-Pass `--repo-map repo_map.json` to also enable module-graph queries:
+Pass `--repo-map case/repo_map.json` to also enable module-graph queries:
 
 ```bash
-python3 scripts/repo_corpus_mcp.py --corpus repo_corpus.jsonl --repo-map repo_map.json
+python3 scripts/repo_corpus_mcp.py --corpus case/repo_corpus.jsonl --repo-map case/repo_map.json
 ```
 
 Each tool returns compact text plus `structuredContent`, uses hard-capped pagination, and returns validation failures as tool-visible structured errors.
@@ -247,6 +254,7 @@ Schema documentation lives in `references/output-schemas.md` and `references/rep
 
 Important outputs:
 
+- `case_manifest.json`: deterministic case index with analyzed target hash, artifact hashes, caps, helper-script hashes, ignored directories, warnings, and static-first safety posture.
 - `repo_inventory.json`: repository file inventory, language counts, manifest list, hashes.
 - `repo_map.json`: entrypoints, dependencies, routes, plugin surfaces, configs, imports, Python module graph, risks, limitations.
 - `repo_corpus.jsonl`: one JSON record per included file with path, kind, language, SHA256, summary, symbols, imports, and evidence excerpts.

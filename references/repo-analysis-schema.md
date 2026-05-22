@@ -35,6 +35,20 @@ Each line is a JSON object:
 - `imports`: statically extracted import/dependency hints.
 - `evidence`: short line-numbered excerpts used for traceability.
 
+## case_manifest.json
+
+See `references/case-manifest-schema.md` for the full contract.
+
+- `schema`: currently `reveng.case_manifest.v1`.
+- `case_id`: deterministic identifier derived from target content hash, caps, target kind, and schema.
+- `target`: operator-provided analyzed repository path plus deterministic content hash.
+- `artifacts`: indexed outputs such as `repo_inventory.json`, `repo_map.json`, and `repo_corpus.jsonl` with size and SHA256.
+- `caps`: analysis limits that affected output.
+- `script_hashes`: SHA256 hashes of RevEng helper scripts used for the case.
+- `ignored_directories`: traversal ignore list.
+- `warnings`: sorted analysis warnings.
+- `safety`: static-first metadata; default repo analysis records no target code execution and no network contact.
+
 ## MCP corpus server
 
 `scripts/repo_corpus_mcp.py` exposes a read-only stdio MCP server over `repo_corpus.jsonl`.

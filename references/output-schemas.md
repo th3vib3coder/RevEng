@@ -19,6 +19,7 @@ Every non-obvious claim should cite a repository-relative path and, when possibl
 
 Structured outputs:
 
+- `case_manifest.json`
 - `repo_inventory.json`
 - `repo_map.json`
 - `repo_corpus.jsonl`
