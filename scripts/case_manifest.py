@@ -118,16 +118,23 @@ def build_manifest(
 ) -> dict[str, Any]:
     case_dir = case_dir.resolve()
     target = target.resolve()
-    if not target.is_dir():
-        raise SystemExit(f"target not found or not a directory: {target}")
+    if target.is_dir():
+        content_sha256 = target_content_sha256(target)
+        target_type = "directory"
+    elif target.is_file():
+        content_sha256 = sha256_file(target)
+        target_type = "file"
+    else:
+        raise SystemExit(f"target not found: {target}")
 
     payload: dict[str, Any] = {
         "schema": SCHEMA,
         "target": {
             "kind": target_kind,
+            "type": target_type,
             "path": str(target),
             "path_role": "operator_input",
-            "content_sha256": target_content_sha256(target),
+            "content_sha256": content_sha256,
         },
         "artifacts": [build_artifact_record(case_dir, name, raw_path) for name, raw_path in artifacts],
         "caps": dict(sorted(caps.items())),
@@ -149,7 +156,7 @@ def build_manifest(
 def main() -> int:
     parser = argparse.ArgumentParser(description="Create a deterministic RevEng case_manifest.json")
     parser.add_argument("--case-dir", required=True, help="Case/output directory for this analysis")
-    parser.add_argument("--target", required=True, help="Analyzed repository directory")
+    parser.add_argument("--target", required=True, help="Analyzed target: a repository directory or a single file (e.g. a binary)")
     parser.add_argument("--target-kind", default="source_repo")
     parser.add_argument("--artifact", action="append", default=[], help="Artifact as name=path; may be repeated")
     parser.add_argument("--cap", action="append", default=[], help="Capability/cap as name=value; may be repeated")

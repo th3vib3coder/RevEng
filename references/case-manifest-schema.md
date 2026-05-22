@@ -33,10 +33,11 @@ On Windows, use `python` if `python3` is absent.
 
 ## target
 
-- `kind`: `source_repo` for repository analysis.
+- `kind`: operator-provided target kind, e.g. `source_repo`, `binary`, or `android`.
+- `type`: `directory` or `file`, derived from the target path.
 - `path`: absolute operator-provided target path.
 - `path_role`: `operator_input`.
-- `content_sha256`: deterministic hash over repository-relative file paths and file SHA256 values after RevEng ignore/symlink rules.
+- `content_sha256`: for a directory target, a deterministic hash over repository-relative file paths and file SHA256 values after RevEng ignore/symlink rules; for a file target, the SHA256 of the file content.
 
 ## artifacts
 
