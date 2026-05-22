@@ -31,11 +31,11 @@ JSON with `sample`, `hashes`, `file_type`, `size_bytes`, `bytes_analyzed`, `entr
 
 ## ioc_report
 
-JSON/YAML groups: `hashes`, `network`, `file_paths`, `file_names`, `process_names`, `registry`, `mutexes`, `user_agents`, `emails`, `certificates`, and `notes`. Every item must include `value`, `confidence`, `source`, and `evidence_snippet`. Defanged and normalized variants are separate records when normalization is reversible. A top-level `truncated` boolean is `true` when a per-category cap (1000 items) dropped indicators or an overlong evidence line was clipped, so a report never looks complete while silently discarding evidence.
+JSON/YAML groups: `hashes`, `network`, `file_paths`, `file_names`, `process_names`, `registry`, `mutexes`, `user_agents`, `emails`, `certificates`, and `notes`. Every item must include `value`, `confidence`, `source`, and `evidence_snippet`. Defanged and normalized variants are separate records when normalization is reversible. IPv4 candidates in version/build-like context use `contextual` confidence instead of `confirmed`. A top-level `truncated` boolean is `true` when a per-category cap (1000 items) dropped indicators or an overlong evidence line was clipped, so a report never looks complete while silently discarding evidence.
 
 ## android_api_report
 
-JSON with `base_urls`, `endpoints`, `auth_headers`, `source_files`, and `limitations`. Endpoint records include source file and line when available.
+JSON with `base_urls`, `endpoints`, `auth_headers`, `source_files`, `skipped_files`, and `limitations`. Endpoint records include source file and line when available. `skipped_files` records symlinks or files larger than `--max-file-bytes` that were not scanned.
 
 ## ghidra_report
 

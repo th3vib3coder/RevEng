@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import importlib.util
 import json
 import subprocess
 import sys
@@ -8,6 +9,19 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[1]
+
+
+def load_script_module(script_name: str):
+    scripts_dir = str(ROOT / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    spec = importlib.util.spec_from_file_location(script_name.removesuffix(".py"), ROOT / "scripts" / script_name)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def make_fixture(tmp_path: Path) -> Path:
@@ -118,6 +132,27 @@ def test_repo_map_extracts_entrypoints_dependencies_routes_and_plugin_surfaces(t
     assert payload["limitations"]
 
 
+def test_pyproject_fallback_extracts_multiline_dependencies_without_tomllib() -> None:
+    repo_map = load_script_module("repo_map.py")
+
+    payload = repo_map.parse_pyproject_fallback(
+        """
+[project]
+dependencies = [
+  "requests>=2",
+  "pydantic>=2",
+]
+
+[project.scripts]
+fixture-cli = "pkg.cli:main"
+""".strip()
+    )
+
+    project = payload["project"]
+    assert project["dependencies"] == ["requests>=2", "pydantic>=2"]
+    assert project["scripts"]["fixture-cli"] == "pkg.cli:main"
+
+
 def test_repo_corpus_export_emits_stable_records_with_hashes(tmp_path: Path) -> None:
     repo = make_fixture(tmp_path)
     out = tmp_path / "repo_corpus.jsonl"
@@ -136,4 +171,3 @@ def test_repo_corpus_export_emits_stable_records_with_hashes(tmp_path: Path) -> 
     assert "main" in cli_record["symbols"]
     assert "requests" in cli_record["imports"]
     assert cli_record["evidence"]
-

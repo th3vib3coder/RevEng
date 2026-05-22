@@ -148,7 +148,10 @@ def looks_binary(path: Path) -> bool:
 
 
 def read_text(path: Path, max_bytes: int = 500_000) -> str:
-    data = path.read_bytes()[:max_bytes]
+    # Bounded read: never load more than max_bytes into memory. A whole-file
+    # read()[:max_bytes] would still buffer a multi-GB file before slicing it.
+    with path.open("rb") as handle:
+        data = handle.read(max_bytes)
     return data.decode("utf-8", errors="replace")
 
 

@@ -113,3 +113,27 @@ def test_ioc_extract_marks_truncated_for_overlong_lines(tmp_path: Path) -> None:
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload.get("truncated") is True
     assert "network" not in payload
+
+
+def test_ioc_extract_does_not_mark_exact_cap_line_as_truncated(tmp_path: Path) -> None:
+    evidence = tmp_path / "exact-line.txt"
+    evidence.write_text("A" * 16, encoding="utf-8")
+    out = tmp_path / "iocs.json"
+
+    run_script("ioc_extract.py", str(evidence), "--json-out", str(out), "--max-line-chars", "16")
+
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert payload.get("truncated") is False
+
+
+def test_android_api_scan_skips_oversized_files(tmp_path: Path) -> None:
+    src = tmp_path / "Api.kt"
+    src.write_text('val u = "https://api.example.test/v1/ping"\n' * 5, encoding="utf-8")
+    out = tmp_path / "android.json"
+
+    run_script("android_api_scan.py", str(tmp_path), "--max-file-bytes", "20", "--json-out", str(out))
+
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    assert "Api.kt" in payload.get("skipped_files", [])
+    assert payload["endpoints"] == []
+    assert payload["base_urls"] == []

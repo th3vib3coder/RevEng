@@ -25,19 +25,42 @@ IMPORT_PATTERNS = [
 ]
 
 
+def parse_toml_array_items(text: str) -> list[str]:
+    items: list[str] = []
+    for chunk in text.split(","):
+        item = chunk.strip().strip("'\"")
+        if item:
+            items.append(item)
+    return items
+
+
 def parse_pyproject_fallback(text: str) -> dict[str, Any]:
     project: dict[str, Any] = {"scripts": {}, "dependencies": []}
     section = ""
+    collecting_dependencies = False
     for raw_line in text.splitlines():
         line = raw_line.strip()
         if not line or line.startswith("#"):
             continue
+        if collecting_dependencies:
+            if "]" in line:
+                project["dependencies"].extend(parse_toml_array_items(line.split("]", 1)[0]))
+                collecting_dependencies = False
+            else:
+                project["dependencies"].extend(parse_toml_array_items(line))
+            continue
         if line.startswith("[") and line.endswith("]"):
             section = line.strip("[]")
             continue
-        if section == "project" and line.startswith("dependencies") and "[" in line:
-            values = line.split("[", 1)[1].rsplit("]", 1)[0]
-            project["dependencies"] = [item.strip().strip("'\"") for item in values.split(",") if item.strip()]
+        if section == "project" and line.startswith("dependencies") and "=" in line:
+            value = line.split("=", 1)[1].strip()
+            if value.startswith("["):
+                values = value.split("[", 1)[1]
+                if "]" in values:
+                    project["dependencies"] = parse_toml_array_items(values.rsplit("]", 1)[0])
+                else:
+                    project["dependencies"].extend(parse_toml_array_items(values))
+                    collecting_dependencies = True
         elif section == "project.scripts" and "=" in line:
             name, target = line.split("=", 1)
             project["scripts"][name.strip().strip("'\"")] = target.strip().strip("'\"")

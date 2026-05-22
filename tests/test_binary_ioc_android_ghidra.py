@@ -61,6 +61,20 @@ def test_ioc_extract_preserves_evidence_and_normalizes_url(tmp_path: Path) -> No
     assert payload["user_agents"][0]["evidence_snippet"] == "User-Agent: ExampleAgent/1.0"
 
 
+def test_ioc_extract_marks_version_like_ipv4_as_contextual(tmp_path: Path) -> None:
+    evidence = tmp_path / "evidence.txt"
+    evidence.write_text("library version 1.2.3.4 released\n", encoding="utf-8")
+    out = tmp_path / "iocs.json"
+
+    run_script("ioc_extract.py", str(evidence), "--json-out", str(out))
+
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    item = payload["network"][0]
+    assert item["kind"] == "ipv4"
+    assert item["value"] == "1.2.3.4"
+    assert item["confidence"] == "contextual"
+
+
 def test_android_api_scan_detects_retrofit_okhttp_auth_and_base_url(tmp_path: Path) -> None:
     source = tmp_path / "ApiService.kt"
     source.write_text(
