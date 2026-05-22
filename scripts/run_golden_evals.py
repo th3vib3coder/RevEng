@@ -225,6 +225,10 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     require("secret_pattern" in risks, "secret-like risk not detected")
     require(("pkg.cli", "pkg.helpers", "pkg.helpers") in graph_edges, f"missing internal Python module edge: {graph_edges}")
     require(("pkg.cli", "requests") in graph_external, f"missing external Python import: {graph_external}")
+    metrics = repo_map["module_graph"]["metrics"]
+    require(metrics["fan_out"].get("pkg.cli", 0) >= 1, f"module graph fan_out missing: {metrics['fan_out']}")
+    require(metrics["fan_in"].get("pkg.helpers", 0) >= 1, f"module graph fan_in missing: {metrics['fan_in']}")
+    require(metrics["cycles"] == [], f"unexpected import cycle in acyclic fixture: {metrics['cycles']}")
 
     records = {record["path"]: record for record in corpus}
     require("pkg/cli.py" in records, "Python source missing from corpus")

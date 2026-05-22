@@ -194,10 +194,94 @@ def build_python_module_graph(
         ],
         "edges": sorted(edges, key=lambda item: (item["from"], item["to"], item["import"])),
         "external_imports": sorted(external_imports, key=lambda item: (item["from"], item["import"])),
+        "metrics": module_graph_metrics([module for module in sorted(python_modules) if module], edges),
         "limitations": [
             "Python module graph is static and import-derived; dynamic imports and runtime path mutation are not resolved.",
             "JavaScript/TypeScript and other language graphs are not built in this zero-dependency implementation.",
         ],
+    }
+
+
+def strongly_connected_cycles(adjacency: dict[str, set[str]]) -> list[list[str]]:
+    """Return strongly connected components with more than one node (import cycles).
+
+    Iterative Tarjan so a deep dependency graph cannot exhaust the recursion stack.
+    """
+    index_counter = 0
+    indices: dict[str, int] = {}
+    lowlink: dict[str, int] = {}
+    on_stack: dict[str, bool] = {}
+    stack: list[str] = []
+    components: list[list[str]] = []
+    for start in sorted(adjacency):
+        if start in indices:
+            continue
+        indices[start] = lowlink[start] = index_counter
+        index_counter += 1
+        stack.append(start)
+        on_stack[start] = True
+        work: list[tuple[str, Any]] = [(start, iter(sorted(adjacency.get(start, set()))))]
+        while work:
+            node, successors = work[-1]
+            advanced = False
+            for successor in successors:
+                if successor not in indices:
+                    indices[successor] = lowlink[successor] = index_counter
+                    index_counter += 1
+                    stack.append(successor)
+                    on_stack[successor] = True
+                    work.append((successor, iter(sorted(adjacency.get(successor, set())))))
+                    advanced = True
+                    break
+                if on_stack.get(successor):
+                    lowlink[node] = min(lowlink[node], indices[successor])
+            if advanced:
+                continue
+            if lowlink[node] == indices[node]:
+                component: list[str] = []
+                while True:
+                    member = stack.pop()
+                    on_stack[member] = False
+                    component.append(member)
+                    if member == node:
+                        break
+                if len(component) > 1:
+                    components.append(sorted(component))
+            work.pop()
+            if work:
+                parent = work[-1][0]
+                lowlink[parent] = min(lowlink[parent], lowlink[node])
+    return components
+
+
+def module_graph_metrics(modules: list[str], edges: list[dict[str, Any]]) -> dict[str, Any]:
+    adjacency: dict[str, set[str]] = {module: set() for module in modules}
+    fan_in: dict[str, int] = {module: 0 for module in modules}
+    fan_out: dict[str, int] = {module: 0 for module in modules}
+    self_loops: list[str] = []
+    counted: set[tuple[str, str]] = set()
+    for edge in edges:
+        src = edge.get("from")
+        dst = edge.get("to")
+        if not isinstance(src, str) or not isinstance(dst, str):
+            continue
+        if src == dst:
+            if src not in self_loops:
+                self_loops.append(src)
+            continue
+        if (src, dst) in counted:
+            continue
+        counted.add((src, dst))
+        adjacency.setdefault(src, set()).add(dst)
+        adjacency.setdefault(dst, set())
+        fan_out[src] = fan_out.get(src, 0) + 1
+        fan_in[dst] = fan_in.get(dst, 0) + 1
+    cycles = strongly_connected_cycles(adjacency)
+    cycles.extend([node] for node in sorted(self_loops))
+    return {
+        "fan_in": dict(sorted(fan_in.items())),
+        "fan_out": dict(sorted(fan_out.items())),
+        "cycles": sorted(cycles),
     }
 
 

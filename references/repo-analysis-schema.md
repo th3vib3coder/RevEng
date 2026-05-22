@@ -18,7 +18,7 @@
 - `plugins`: Codex, Claude Code, MCP, and app/plugin manifest surfaces.
 - `configs`: CI, Docker, env, settings, and workflow files.
 - `imports`: source-level import hints by file.
-- `module_graph`: Python module graph with `modules`, internal import `edges`, unresolved/external `external_imports`, and graph-specific `limitations`.
+- `module_graph`: Python module graph with `modules`, internal import `edges`, unresolved/external `external_imports`, `metrics` (per-module `fan_in`/`fan_out` plus import `cycles` as strongly-connected components and self-loops), and graph-specific `limitations`.
 - `risks`: static supply-chain and execution-risk observations.
 - `limitations`: what was not executed or could not be inferred.
 
