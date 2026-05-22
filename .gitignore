@@ -1,0 +1,27 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Generated analysis outputs
+repo_inventory.json
+repo_map.json
+repo_corpus.jsonl
+*.triage.json
+iocs.json
+android_api.json
+ghidra_summary.json
+
+# Local environments
+.venv/
+venv/
+env/
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

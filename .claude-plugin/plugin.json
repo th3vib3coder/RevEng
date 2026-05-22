@@ -1,0 +1,17 @@
+{
+  "name": "reverse-engineering",
+  "version": "0.1.0",
+  "description": "Defensive reverse engineering workflows for source repositories, binaries, Android packages, Ghidra outputs, IOC extraction, unpacking assessment, and parity review.",
+  "author": {
+    "name": "Local developer"
+  },
+  "license": "MIT",
+  "keywords": [
+    "reverse-engineering",
+    "repo-forensics",
+    "source-analysis",
+    "rag",
+    "mcp",
+    "security"
+  ]
+}

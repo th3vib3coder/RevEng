@@ -1,0 +1,36 @@
+{
+  "name": "reverse-engineering",
+  "version": "0.1.0",
+  "description": "Defensive reverse engineering workflows for source repositories, binary triage, IOC extraction, Android API extraction, Ghidra headless analysis, and parity review.",
+  "author": {
+    "name": "Local developer"
+  },
+  "license": "MIT",
+  "keywords": [
+    "reverse-engineering",
+    "repo-forensics",
+    "source-analysis",
+    "rag",
+    "mcp",
+    "security"
+  ],
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "Reverse Engineering",
+    "shortDescription": "Static-first RE workflows with evidence-backed outputs.",
+    "longDescription": "A local plugin for authorized reverse engineering of source repositories, binaries, Android packages, Ghidra analysis outputs, IOCs, unpacking assessments, and recovered-code parity reviews. Workflows are static-first, evidence-backed, and gated before executing untrusted code.",
+    "developerName": "Local developer",
+    "category": "Security",
+    "capabilities": [
+      "Read",
+      "Write",
+      "Interactive"
+    ],
+    "defaultPrompt": [
+      "Analyze this repo deeply and export a corpus.",
+      "Triage this binary statically.",
+      "Extract traceable IOCs from this evidence."
+    ],
+    "brandColor": "#256D5A"
+  }
+}
