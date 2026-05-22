@@ -83,7 +83,7 @@ It emits:
 - `repo_corpus.jsonl`
 - a Markdown report written by the agent from the structured evidence
 
-The JSONL corpus is ready for downstream RAG/MCP ingestion. RevEng also ships a read-only stdio MCP server over that corpus for agentic querying with cursor pagination and structured outputs.
+The JSONL corpus is ready for downstream RAG/MCP ingestion. RevEng also ships a read-only stdio MCP server over that corpus for agentic querying with cursor pagination, structured outputs, and a uniform result metadata envelope.
 
 ### `binary-triage`
 
@@ -255,7 +255,7 @@ On Windows, use `python` if `python3` is not available.
 
 ## Output Schemas
 
-Schema documentation lives in `references/output-schemas.md`, `references/repo-analysis-schema.md`, `references/graph-analysis-schema.md`, and `references/external-adapter-schema.md`.
+Schema and reporting documentation lives in `references/output-schemas.md`, `references/repo-analysis-schema.md`, `references/graph-analysis-schema.md`, `references/external-adapter-schema.md`, and `references/report-templates.md`.
 
 Important outputs:
 
@@ -267,7 +267,7 @@ Important outputs:
 - `sample.triage.json`: binary hash/type/entropy/strings/tool-output report.
 - `iocs.json`: grouped traceable IOC report.
 - `android_api.json`: Android API surface report.
-- `ghidra_summary.json`: Ghidra static summary when run in Ghidra/PyGhidra.
+- `ghidra_summary.json`: Ghidra static summary, xrefs, call graph, and CFGs when run in Ghidra/PyGhidra.
 - `re_tool_check.py --json`: local static tool and optional external adapter inventory with safety classes.
 
 ## Installation

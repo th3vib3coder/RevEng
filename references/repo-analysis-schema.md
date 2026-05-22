@@ -66,4 +66,4 @@ Tools:
 - `reveng.list_graph_edges`: query general repo graph edges by `kind`, `from`, and `to`; read-only, cursor-paginated, requires `--repo-map`.
 - `reveng.graph_neighbors`: query adjacent graph nodes/edges for a single `node_id`; read-only, cursor-paginated, requires `--repo-map`.
 
-Tool results return compact `content` text plus full `structuredContent`. Argument validation errors are returned as tool-visible `isError: true` results with a structured error object so an agent can self-correct without losing protocol state.
+Tool results return compact `content` text plus full `structuredContent`. Each structured result includes a `meta` envelope with `case_id`, `result_count`, `offset`, `next_offset`, `truncated`, and `warnings`. Argument validation errors are returned as tool-visible `isError: true` results with a structured error object and the same `meta` envelope so an agent can self-correct without losing protocol state.

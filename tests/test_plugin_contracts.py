@@ -112,3 +112,9 @@ def test_ci_uses_explicit_windows_runner() -> None:
     text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
     assert "windows-latest" not in text
     assert "windows-2025-vs2026" in text
+
+
+def test_report_templates_include_negative_evidence_and_hypotheses() -> None:
+    text = (ROOT / "references" / "report-templates.md").read_text(encoding="utf-8")
+    for needle in ("Negative Evidence", "Alternate Hypotheses", "Evidence Table", "Blocked Questions", "Next Analysis"):
+        assert needle in text

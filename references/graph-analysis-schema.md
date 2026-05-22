@@ -87,7 +87,7 @@ When `repo_corpus_mcp.py` is started with `--repo-map`, the server exposes:
 - `reveng.list_graph_edges`: filter edges by `kind`, `from`, `to`, `cursor`, and hard-capped `limit`.
 - `reveng.graph_neighbors`: fetch adjacent nodes and edges for one `node_id`, with `direction` (`in`, `out`, `both`) and optional `edge_kind`.
 
-All tools are read-only, cursor-paginated, and return compact text plus `structuredContent`.
+All tools are read-only, cursor-paginated, and return compact text plus `structuredContent`. The `structuredContent.meta` envelope reports `result_count`, `offset`, `next_offset`, `truncated`, and `warnings` consistently across corpus and graph tools.
 
 ## Interpretation Rules
 

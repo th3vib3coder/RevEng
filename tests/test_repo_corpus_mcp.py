@@ -124,6 +124,11 @@ def test_repo_corpus_mcp_search_returns_split_paginated_content(tmp_path: Path) 
         assert structured["records"][0]["path"] in {"pkg/cli.py", "pkg/helpers.py"}
         assert structured["nextCursor"]
         assert structured["done"] is False
+        assert structured["meta"]["result_count"] == 1
+        assert structured["meta"]["offset"] == 0
+        assert structured["meta"]["next_offset"] == int(structured["nextCursor"])
+        assert structured["meta"]["truncated"] is True
+        assert structured["meta"]["warnings"] == []
 
         second = client.request(
             "tools/call",
@@ -170,6 +175,8 @@ def test_repo_corpus_mcp_schema_error_is_tool_visible(tmp_path: Path) -> None:
         assert result["isError"] is True
         assert result["structuredContent"]["error"]["code"] == "invalid_arguments"
         assert "limit" in result["structuredContent"]["error"]["message"]
+        assert result["structuredContent"]["meta"]["result_count"] == 0
+        assert result["structuredContent"]["meta"]["warnings"]
     finally:
         client.close()
 

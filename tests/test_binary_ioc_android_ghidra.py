@@ -176,3 +176,105 @@ def test_ghidra_export_summary_fails_cleanly_outside_ghidra(tmp_path: Path) -> N
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert "Ghidra" in payload["error"]
     assert payload["analysis_warnings"]
+
+
+class FakeAddress:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class FakeBlock:
+    def __init__(self, start: str, successors: list[str]) -> None:
+        self.start = FakeAddress(start)
+        self.successors = [FakeAddress(item) for item in successors]
+
+    def getFirstStartAddress(self) -> FakeAddress:
+        return self.start
+
+    def getDestinations(self, _monitor: object | None = None) -> list[FakeAddress]:
+        return self.successors
+
+
+class FakeFunction:
+    def __init__(self, name: str, entry: str, calls: list["FakeFunction"] | None = None, blocks: list[FakeBlock] | None = None) -> None:
+        self.name = name
+        self.entry = FakeAddress(entry)
+        self.calls = calls or []
+        self.blocks = blocks or []
+
+    def getName(self) -> str:
+        return self.name
+
+    def getEntryPoint(self) -> FakeAddress:
+        return self.entry
+
+    def getCalledFunctions(self, _monitor: object | None = None) -> list["FakeFunction"]:
+        return self.calls
+
+    def getBasicBlocks(self) -> list[FakeBlock]:
+        return self.blocks
+
+
+class FakeListing:
+    def __init__(self, functions: list[FakeFunction]) -> None:
+        self.functions = functions
+
+    def getFunctions(self, _forward: bool) -> list[FakeFunction]:
+        return self.functions
+
+
+class FakeCompilerSpec:
+    def getCompilerSpecID(self) -> str:
+        return "gcc"
+
+
+class FakeProgram:
+    def __init__(self, functions: list[FakeFunction]) -> None:
+        self.functions = functions
+
+    def getName(self) -> str:
+        return "fake.bin"
+
+    def getLanguageID(self) -> str:
+        return "x86:LE:64:default"
+
+    def getCompilerSpec(self) -> FakeCompilerSpec:
+        return FakeCompilerSpec()
+
+    def getListing(self) -> FakeListing:
+        return FakeListing(self.functions)
+
+    def getSymbolTable(self) -> None:
+        return None
+
+
+def test_ghidra_summary_exports_fake_call_graph_cfg_and_text_summary() -> None:
+    ghidra = load_script_module("ghidra_export_summary.py")
+    helper = FakeFunction("helper", "0x2000")
+    entry = FakeFunction(
+        "entry",
+        "0x1000",
+        calls=[helper],
+        blocks=[
+            FakeBlock("0x1000", ["0x1010", "0x1020"]),
+            FakeBlock("0x1010", ["0x1030"]),
+            FakeBlock("0x1020", ["0x1030"]),
+            FakeBlock("0x1030", []),
+        ],
+    )
+    payload = ghidra.collect_summary(FakeProgram([entry, helper]))
+
+    assert payload["call_graph"]["nodes"] == [
+        {"entry": "0x1000", "name": "entry"},
+        {"entry": "0x2000", "name": "helper"},
+    ]
+    assert payload["call_graph"]["edges"] == [{"from": "entry", "from_entry": "0x1000", "to": "helper", "to_entry": "0x2000"}]
+    assert payload["xrefs"] == []
+    assert any("xrefs unavailable" in item for item in payload["analysis_warnings"])
+    cfg = payload["function_cfgs"][0]
+    assert cfg["function"] == "entry"
+    assert {"from": "0x1000", "to": "0x1010"} in cfg["edges"]
+    assert any("CFG entry" in item for item in payload["graph_summaries"])

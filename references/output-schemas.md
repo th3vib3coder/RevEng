@@ -42,9 +42,13 @@ JSON/YAML groups: `hashes`, `network`, `file_paths`, `file_names`, `process_name
 
 JSON with `base_urls`, `endpoints`, `auth_headers`, `source_files`, `skipped_files`, and `limitations`. Endpoint records include source file and line when available. `skipped_files` records symlinks or files larger than `--max-file-bytes` that were not scanned.
 
+## mcp_tool_result
+
+Read-only MCP tool results include compact `content` text plus `structuredContent`. `structuredContent.meta` contains `case_id`, `result_count`, `offset`, `next_offset`, `truncated`, and `warnings`.
+
 ## ghidra_report
 
-JSON with `program`, `language_id`, `compiler_spec_id`, `functions`, `imports`, `exports`, `strings`, and `analysis_warnings`.
+JSON with `program`, `language_id`, `compiler_spec_id`, `functions`, `imports`, `exports`, `strings`, `xrefs`, `call_graph`, `function_cfgs`, `graph_summaries`, and `analysis_warnings`. Graph fields are best-effort and may be empty with warnings outside a compatible Ghidra/PyGhidra runtime.
 
 ## parity_report
 

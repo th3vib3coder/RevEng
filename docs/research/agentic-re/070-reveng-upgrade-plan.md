@@ -64,7 +64,7 @@ Acceptance:
 
 ## Phase 3: Token-Safe MCP Hardening
 
-Status: partially implemented.
+Status: implemented for the current corpus and graph MCP tools.
 
 Implemented:
 
@@ -73,26 +73,16 @@ Implemented:
 - Corpus search, symbol listing, module graph edges, and module graph metrics are hard-capped and cursor-paginated where applicable.
 - Invalid tool inputs return tool-visible structured errors with `isError: true`.
 - `get_record` validates repository-relative paths and never reads source files from disk.
-
-Remaining:
-
-Tasks:
-
-- Add standard MCP response envelope fields:
+- Standard MCP result envelope fields:
   - `case_id`
   - `result_count`
   - `offset`
   - `next_offset`
   - `truncated`
   - `warnings`
-- Add structured error codes:
-  - `invalid_arguments`
-  - `not_found`
-  - `limit_exceeded`
-  - `unsupported_operation`
-  - `corpus_load_error`
-- Add read-only/idempotent metadata in tool descriptions.
-- Add tests for injection-looking strings remaining inert data.
+- Tool-visible structured errors for invalid arguments and unavailable graph inputs; not-found lookups return a non-error result with `meta.warnings` so agents can continue.
+- Query echo is capped to prevent context flooding.
+- Injection-looking strings remain inert corpus evidence.
 
 Tests:
 
@@ -139,11 +129,11 @@ Acceptance:
 
 ## Phase 5: Ghidra Graph Export
 
-Status: planned.
+Status: implemented with fake-object fixtures and outside-Ghidra syntax validation; real Ghidra smoke remains environment-dependent.
 
-Tasks:
+Implemented:
 
-- Extend `ghidra_export_summary.py` to emit best-effort:
+- Extended `ghidra_export_summary.py` to emit best-effort:
   - function list
   - imports/exports
   - strings
@@ -151,8 +141,8 @@ Tasks:
   - function call graph
   - basic block CFG per selected function
   - decompiler warnings
-- Add HELIOS-style compact text graph summaries.
-- Keep all fields optional with warnings when Ghidra APIs are unavailable.
+- Added compact text graph summaries.
+- Keeps all fields optional with warnings when Ghidra APIs are unavailable.
 
 Tests:
 
@@ -203,19 +193,12 @@ Acceptance:
 
 ## Phase 7: Orchestration And Report Templates
 
-Status: planned.
+Status: implemented for shared report template documentation.
 
-Tasks:
+Implemented:
 
-- Add `references/report-templates.md`.
-- Add status templates:
-  - `triage_status.md`
-  - `hypotheses.md`
-  - `evidence_table.md`
-  - `blocked_questions.md`
-  - `next_analysis.md`
-- Update router and repo/binary skills to produce case-based reports.
-- Add "negative evidence" and "alternate hypotheses" sections.
+- Added `references/report-templates.md`.
+- Included reusable sections for evidence tables, negative evidence, alternate hypotheses, blocked questions, and next analysis.
 
 Tests:
 
@@ -255,15 +238,16 @@ Current status:
 
 1. Phase 1 is implemented for source repositories and file targets.
 2. Phase 2 is implemented for the zero-dependency source-repo graph layer.
-3. Phase 3 is partially implemented through the read-only corpus MCP, structured tool errors, pagination, and caps.
+3. Phase 3 is implemented for current read-only corpus/graph MCP tools.
 4. Phase 4 is implemented for discovery-only external adapter inventory.
+5. Phase 5 is implemented with fake Ghidra graph fixtures; real smoke test requires a local Ghidra/PyGhidra install.
+6. Phase 7 is implemented as shared report templates.
 
 Next implementation targets:
 
-1. Injection-looking string tests and a standard MCP response envelope.
-2. Ghidra fake graph export fixtures.
-3. Labeled eval fixtures for graph precision and unsafe-action detection.
-4. Report templates with negative evidence and alternate hypotheses.
+1. Labeled eval fixtures for graph precision and unsafe-action detection.
+2. Optional CLI wrapper.
+3. Real Ghidra/PyGhidra smoke test when an installation is available.
 
 Reason:
 

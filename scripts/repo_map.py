@@ -15,8 +15,8 @@ except ModuleNotFoundError:  # pragma: no cover
 
 ROUTE_PATTERNS = [
     ("python", re.compile(r"@\w+\.(get|post|put|delete|patch|route)\(\s*['\"]([^'\"]+)['\"]", re.I)),
-    ("javascript", re.compile(r"\b(?:app|router)\.(get|post|put|delete|patch|use)\(\s*['\"`]([^'\"`]+)['\"`]", re.I)),
 ]
+JS_ROUTE_PREFIX = re.compile(r"(?:app|router)\s*\.\s*(get|post|put|delete|patch|use)\s*\(", re.I)
 
 IMPORT_PATTERNS = [
     re.compile(r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.M),
@@ -142,6 +142,78 @@ def extract_routes(text: str, rel: str) -> list[dict[str, Any]]:
             path = match.group(2)
             line = text[: match.start()].count("\n") + 1
             routes.append({"framework_hint": framework, "method": method, "path": path, "source": rel, "line": line})
+    routes.extend(extract_javascript_routes(text, rel))
+    return routes
+
+
+def skip_js_string(text: str, start: int) -> int:
+    quote = text[start]
+    i = start + 1
+    while i < len(text):
+        char = text[i]
+        if char == "\\":
+            i += 2
+            continue
+        if char == quote:
+            return i + 1
+        i += 1
+    return len(text)
+
+
+def parse_js_string_literal(text: str, start: int) -> tuple[str, int] | None:
+    if start >= len(text) or text[start] not in {"'", '"', "`"}:
+        return None
+    quote = text[start]
+    chars: list[str] = []
+    i = start + 1
+    while i < len(text):
+        char = text[i]
+        if char == "\\" and i + 1 < len(text):
+            chars.append(text[i + 1])
+            i += 2
+            continue
+        if char == quote:
+            return "".join(chars), i + 1
+        chars.append(char)
+        i += 1
+    return None
+
+
+def extract_javascript_routes(text: str, rel: str) -> list[dict[str, Any]]:
+    routes: list[dict[str, Any]] = []
+    i = 0
+    while i < len(text):
+        if text.startswith("//", i):
+            newline = text.find("\n", i + 2)
+            i = len(text) if newline == -1 else newline + 1
+            continue
+        if text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = len(text) if end == -1 else end + 2
+            continue
+        if text[i] in {"'", '"', "`"}:
+            i = skip_js_string(text, i)
+            continue
+        match = JS_ROUTE_PREFIX.match(text, i)
+        if match and (i == 0 or not (text[i - 1].isalnum() or text[i - 1] in {"_", "$"})):
+            arg_start = match.end()
+            while arg_start < len(text) and text[arg_start].isspace():
+                arg_start += 1
+            parsed = parse_js_string_literal(text, arg_start)
+            if parsed is not None:
+                path, end = parsed
+                routes.append(
+                    {
+                        "framework_hint": "javascript",
+                        "method": match.group(1).upper(),
+                        "path": path,
+                        "source": rel,
+                        "line": text[: match.start()].count("\n") + 1,
+                    }
+                )
+                i = end
+                continue
+        i += 1
     return routes
 
 

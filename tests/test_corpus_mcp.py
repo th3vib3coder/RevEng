@@ -54,6 +54,14 @@ def test_graph_node_tool_filters_by_kind_and_query() -> None:
     sc = result["structuredContent"]
     assert [node["id"] for node in sc["nodes"]] == ["module:pkg.cli"]
     assert sc["done"] is True
+    assert sc["meta"] == {
+        "case_id": None,
+        "result_count": 1,
+        "offset": 0,
+        "next_offset": None,
+        "truncated": False,
+        "warnings": [],
+    }
 
 
 def test_graph_edge_tool_filters_by_kind_and_endpoint() -> None:
@@ -81,6 +89,7 @@ def test_graph_tools_error_when_graph_unavailable() -> None:
 
     assert result["isError"] is True
     assert result["structuredContent"]["error"]["code"] == "graph_unavailable"
+    assert result["structuredContent"]["meta"]["truncated"] is False
 
 
 def test_module_graph_tool_filters_dependencies() -> None:

@@ -98,6 +98,11 @@ def feature():
         """
 const express = require("express");
 const app = express();
+// app.get("/commented", (req, res) => res.send("no"));
+/*
+router.post("/block-comment", handler);
+*/
+const fake = "router.delete('/string-literal', handler)";
 app.get("/health", (req, res) => res.send("ok"));
 module.exports = app;
 """.lstrip(),
@@ -152,6 +157,9 @@ def test_repo_map_extracts_entrypoints_dependencies_routes_and_plugin_surfaces(t
     assert "express" in dependency_names
     assert "/health" in route_paths
     assert "/items/{item_id}" in route_paths
+    assert "/commented" not in route_paths
+    assert "/block-comment" not in route_paths
+    assert "/string-literal" not in route_paths
     assert ".codex-plugin/plugin.json" in plugin_paths
     assert ".claude-plugin/plugin.json" in plugin_paths
     assert payload["limitations"]

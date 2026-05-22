@@ -14,7 +14,7 @@ Guide repeatable static analysis with a local Ghidra installation. The plugin do
    - Adapter discovery is PATH lookup only; it does not authorize running Ghidra.
 2. Create or reuse a headless project outside the analyzed sample directory.
 3. Use `analyzeHeadless` with `-import`, `-scriptPath`, and `-postScript` when appropriate.
-4. Use `scripts/ghidra_export_summary.py` as a PyGhidra/Ghidra script to export program metadata, functions, imports, exports, strings, and warnings.
+4. Use `scripts/ghidra_export_summary.py` as a PyGhidra/Ghidra script to export program metadata, functions, imports, exports, strings, xrefs, call graph, CFGs, compact graph summaries, and warnings.
 
 Example shape:
 

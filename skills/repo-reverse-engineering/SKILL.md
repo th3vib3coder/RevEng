@@ -45,6 +45,7 @@ Read details only when needed:
 - `references/repo-analysis-schema.md`
 - `references/case-manifest-schema.md`
 - `references/output-schemas.md`
+- `references/report-templates.md`
 
 ## Analysis Procedure
 

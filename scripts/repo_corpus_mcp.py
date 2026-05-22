@@ -34,7 +34,47 @@ def jsonrpc_error(request_id: Any, code: int, message: str, data: dict[str, Any]
     return {"jsonrpc": "2.0", "id": request_id, "error": error}
 
 
+def response_meta(
+    *,
+    result_count: int = 0,
+    offset: int = 0,
+    next_offset: int | None = None,
+    truncated: bool = False,
+    warnings: list[str] | None = None,
+    case_id: str | None = None,
+) -> dict[str, Any]:
+    return {
+        "case_id": case_id,
+        "result_count": result_count,
+        "offset": offset,
+        "next_offset": next_offset,
+        "truncated": truncated,
+        "warnings": warnings or [],
+    }
+
+
+def with_meta(
+    structured: dict[str, Any],
+    *,
+    result_count: int = 0,
+    offset: int = 0,
+    next_offset: int | None = None,
+    truncated: bool = False,
+    warnings: list[str] | None = None,
+) -> dict[str, Any]:
+    structured["meta"] = response_meta(
+        result_count=result_count,
+        offset=offset,
+        next_offset=next_offset,
+        truncated=truncated,
+        warnings=warnings,
+    )
+    return structured
+
+
 def tool_result(text: str, structured: dict[str, Any], is_error: bool = False) -> dict[str, Any]:
+    if "meta" not in structured:
+        structured = with_meta(structured)
     return {
         "resultType": "complete",
         "content": [{"type": "text", "text": text[:MAX_TEXT_CHARS]}],
@@ -47,6 +87,7 @@ def tool_error(code: str, message: str, expected: dict[str, Any] | None = None) 
     structured: dict[str, Any] = {"error": {"code": code, "message": message}}
     if expected is not None:
         structured["error"]["expected"] = expected
+    structured = with_meta(structured, warnings=[message])
     return tool_result(f"Error: {message}", structured, is_error=True)
 
 
@@ -172,7 +213,13 @@ def tool_search_corpus(corpus: Path, args: dict[str, Any]) -> dict[str, Any]:
     text = f"{len(records)} corpus match(es) for '{query}'" + ("" if done else f"; continue with cursor {next_cursor}")
     return tool_result(
         text,
-        {"records": records, "query": query[:MAX_TEXT_CHARS], "nextCursor": next_cursor, "done": done, "limit": limit},
+        with_meta(
+            {"records": records, "query": query[:MAX_TEXT_CHARS], "nextCursor": next_cursor, "done": done, "limit": limit},
+            result_count=len(records),
+            offset=start_line,
+            next_offset=int(next_cursor) if next_cursor is not None else None,
+            truncated=not done,
+        ),
     )
 
 
@@ -181,8 +228,11 @@ def tool_get_record(corpus: Path, args: dict[str, Any]) -> dict[str, Any]:
     for _, record in iter_records(corpus):
         if record.get("path") == requested:
             compact = compact_record(record)
-            return tool_result(f"Record found: {requested}", {"record": compact})
-    return tool_result(f"Record not found: {requested}", {"record": None, "path": requested})
+            return tool_result(f"Record found: {requested}", with_meta({"record": compact}, result_count=1))
+    return tool_result(
+        f"Record not found: {requested}",
+        with_meta({"record": None, "path": requested}, warnings=[f"record not found: {requested}"]),
+    )
 
 
 def tool_list_symbols(corpus: Path, args: dict[str, Any]) -> dict[str, Any]:
@@ -217,7 +267,16 @@ def tool_list_symbols(corpus: Path, args: dict[str, Any]) -> dict[str, Any]:
             break
     done = next_cursor is None
     text = f"{len(matches)} symbol match(es)" + ("" if done else f"; continue with cursor {next_cursor}")
-    return tool_result(text, {"matches": matches, "query": query[:MAX_TEXT_CHARS], "nextCursor": next_cursor, "done": done, "limit": limit})
+    return tool_result(
+        text,
+        with_meta(
+            {"matches": matches, "query": query[:MAX_TEXT_CHARS], "nextCursor": next_cursor, "done": done, "limit": limit},
+            result_count=len(matches),
+            offset=start_match,
+            next_offset=int(next_cursor) if next_cursor is not None else None,
+            truncated=not done,
+        ),
+    )
 
 
 def tool_corpus_summary(corpus: Path, args: dict[str, Any]) -> dict[str, Any]:
@@ -237,6 +296,7 @@ def tool_corpus_summary(corpus: Path, args: dict[str, Any]) -> dict[str, Any]:
             "records": total,
             "kinds": dict(sorted(counts.items())),
             "languages": dict(sorted(languages.items())),
+            "meta": response_meta(result_count=total),
         },
     )
 
@@ -365,14 +425,20 @@ def tool_list_graph_nodes(repo_graph: dict[str, Any] | None, args: dict[str, Any
     text = f"{len(page)} graph node(s)" + ("" if done else f"; cursor {next_cursor}")
     return tool_result(
         text,
-        {
+        with_meta(
+            {
             "nodes": [compact_graph_node(node) for node in page],
             "kind": kind,
             "query": query[:MAX_TEXT_CHARS],
             "nextCursor": next_cursor,
             "done": done,
             "limit": limit,
-        },
+            },
+            result_count=len(page),
+            offset=start,
+            next_offset=int(next_cursor) if next_cursor is not None else None,
+            truncated=not done,
+        ),
     )
 
 
@@ -402,7 +468,8 @@ def tool_list_graph_edges(repo_graph: dict[str, Any] | None, args: dict[str, Any
     text = f"{len(page)} graph edge(s)" + ("" if done else f"; cursor {next_cursor}")
     return tool_result(
         text,
-        {
+        with_meta(
+            {
             "edges": [compact_graph_edge(edge) for edge in page],
             "kind": kind,
             "from": src,
@@ -410,7 +477,12 @@ def tool_list_graph_edges(repo_graph: dict[str, Any] | None, args: dict[str, Any
             "nextCursor": next_cursor,
             "done": done,
             "limit": limit,
-        },
+            },
+            result_count=len(page),
+            offset=start,
+            next_offset=int(next_cursor) if next_cursor is not None else None,
+            truncated=not done,
+        ),
     )
 
 
@@ -430,7 +502,10 @@ def tool_graph_neighbors(repo_graph: dict[str, Any] | None, args: dict[str, Any]
     if node_id not in nodes_by_id:
         return tool_result(
             f"Graph node not found: {node_id}",
-            {"node_id": node_id, "nodes": [], "edges": [], "nextCursor": None, "done": True, "limit": limit},
+            with_meta(
+                {"node_id": node_id, "nodes": [], "edges": [], "nextCursor": None, "done": True, "limit": limit},
+                warnings=[f"graph node not found: {node_id}"],
+            ),
         )
 
     filtered: list[dict[str, Any]] = []
@@ -459,7 +534,8 @@ def tool_graph_neighbors(repo_graph: dict[str, Any] | None, args: dict[str, Any]
     text = f"{len(page)} neighbor edge(s) for {node_id}" + ("" if done else f"; cursor {next_cursor}")
     return tool_result(
         text,
-        {
+        with_meta(
+            {
             "node_id": node_id,
             "direction": direction,
             "edge_kind": edge_kind,
@@ -468,7 +544,12 @@ def tool_graph_neighbors(repo_graph: dict[str, Any] | None, args: dict[str, Any]
             "nextCursor": next_cursor,
             "done": done,
             "limit": limit,
-        },
+            },
+            result_count=len(page),
+            offset=start,
+            next_offset=int(next_cursor) if next_cursor is not None else None,
+            truncated=not done,
+        ),
     )
 
 
@@ -509,7 +590,8 @@ def tool_module_graph(module_graph: dict[str, Any] | None, args: dict[str, Any])
     text = f"{len(page)} edge(s)" + (f" for '{module}'" if module else "") + ("" if done else f"; cursor {next_cursor}")
     return tool_result(
         text,
-        {
+        with_meta(
+            {
             "edges": page,
             "external_imports": external,
             "metrics": module_graph_metrics_view(module_graph.get("metrics"), module, limit),
@@ -518,7 +600,12 @@ def tool_module_graph(module_graph: dict[str, Any] | None, args: dict[str, Any])
             "nextCursor": next_cursor,
             "done": done,
             "limit": limit,
-        },
+            },
+            result_count=len(page),
+            offset=start,
+            next_offset=int(next_cursor) if next_cursor is not None else None,
+            truncated=not done,
+        ),
     )
 
 

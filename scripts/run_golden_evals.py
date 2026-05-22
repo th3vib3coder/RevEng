@@ -152,6 +152,11 @@ def format_value(value: str) -> str:
         """
 const express = require("express");
 const app = express();
+// app.get("/commented", (req, res) => res.send("no"));
+/*
+router.post("/block-comment", handler);
+*/
+const fake = "router.delete('/string-literal', handler)";
 app.get("/health", (req, res) => res.send("ok"));
 module.exports = app;
 """.lstrip(),
@@ -223,6 +228,7 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     graph_external = {(item["from"], item["import"]) for item in repo_map["module_graph"]["external_imports"]}
     require({"requests>=2", "pydantic>=2", "express"}.issubset(deps), f"missing dependencies: {deps}")
     require({"/items/{item_id}", "/health"}.issubset(routes), f"missing routes: {routes}")
+    require(not {"/commented", "/block-comment", "/string-literal"} & routes, f"comment/string JS routes leaked: {routes}")
     require({"golden-cli", "test"}.issubset(entrypoints), f"missing entrypoints: {entrypoints}")
     require({".codex-plugin/plugin.json", ".claude-plugin/plugin.json"}.issubset(plugin_paths), "plugin surfaces missing")
     require("secret_pattern" in risks, "secret-like risk not detected")
