@@ -174,7 +174,7 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
 
     run_script("repo_inventory.py", repo, "--json-out", inventory_out)
     run_script("repo_map.py", repo, "--json-out", map_out)
-    run_script("repo_corpus_export.py", repo, "--jsonl-out", corpus_out)
+    run_script("repo_corpus_export.py", repo, "--repo-map", map_out, "--jsonl-out", corpus_out)
     run_script(
         "case_manifest.py",
         "--case-dir",
@@ -232,6 +232,20 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     require(metrics["fan_out"].get("pkg.cli", 0) >= 1, f"module graph fan_out missing: {metrics['fan_out']}")
     require(metrics["fan_in"].get("pkg.helpers", 0) >= 1, f"module graph fan_in missing: {metrics['fan_in']}")
     require(metrics["cycles"] == [], f"unexpected import cycle in acyclic fixture: {metrics['cycles']}")
+    repo_graph = repo_map["graph"]
+    repo_graph_nodes = {item["id"] for item in repo_graph["nodes"]}
+    repo_graph_edges = {item["id"] for item in repo_graph["edges"]}
+    require(repo_graph["schema"] == "reveng.repo_graph.v1", "repo graph schema missing")
+    require("file:pkg/cli.py" in repo_graph_nodes, "repo graph file node missing")
+    require("module:pkg.cli" in repo_graph_nodes, "repo graph module node missing")
+    require("symbol:pkg/cli.py#main" in repo_graph_nodes, "repo graph symbol node missing")
+    require("route:GET:/items/{item_id}" in repo_graph_nodes, "repo graph FastAPI route node missing")
+    require("edge:module_imports_module:module:pkg.cli->module:pkg.helpers" in repo_graph_edges, "repo graph module edge missing")
+    require("edge:file_defines_symbol:file:pkg/cli.py->symbol:pkg/cli.py#main" in repo_graph_edges, "repo graph symbol edge missing")
+    require(
+        "edge:route_bound_to_symbol:route:GET:/items/{item_id}->symbol:pkg/cli.py#read_item" in repo_graph_edges,
+        "repo graph route-to-handler edge missing",
+    )
 
     records = {record["path"]: record for record in corpus}
     require("pkg/cli.py" in records, "Python source missing from corpus")
@@ -242,6 +256,11 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     require("requests" in records["pkg/cli.py"]["imports"], "Python import missing from corpus")
     require("smuggled_symbol" not in records["pkg/cli.py"]["symbols"], "AST symbols leaked a docstring def")
     require("smuggled_import" not in records["pkg/cli.py"]["imports"], "AST imports leaked a docstring import")
+    graph_refs = records["pkg/cli.py"]["graph_refs"]
+    require("file:pkg/cli.py" in graph_refs["nodes"], "corpus graph_refs file node missing")
+    require("module:pkg.cli" in graph_refs["nodes"], "corpus graph_refs module node missing")
+    require("symbol:pkg/cli.py#main" in graph_refs["nodes"], "corpus graph_refs symbol node missing")
+    require("edge:file_defines_symbol:file:pkg/cli.py->symbol:pkg/cli.py#main" in graph_refs["edges"], "corpus graph_refs symbol edge missing")
 
     mcp = McpSession(corpus_out, map_out)
     try:
@@ -274,6 +293,34 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
         require(graph_metrics["fan_in"] == {"pkg.cli": 0}, f"MCP module_graph fan_in missing: {graph_metrics}")
         require(graph_metrics["cycles"] == [], f"MCP module_graph cycles unexpected: {graph_metrics}")
         require(graph_metrics["truncated"] is False, f"MCP module_graph metrics unexpectedly truncated: {graph_metrics}")
+        graph_nodes = mcp.request(
+            "tools/call",
+            {"name": "reveng.list_graph_nodes", "arguments": {"kind": "module", "query": "pkg.cli"}},
+        )["result"]
+        require(graph_nodes["isError"] is False, "MCP list_graph_nodes returned error")
+        require(
+            [item["id"] for item in graph_nodes["structuredContent"]["nodes"]] == ["module:pkg.cli"],
+            f"MCP list_graph_nodes did not filter module node: {graph_nodes}",
+        )
+        graph_edges_mcp = mcp.request(
+            "tools/call",
+            {"name": "reveng.list_graph_edges", "arguments": {"kind": "module_imports_module", "from": "module:pkg.cli"}},
+        )["result"]
+        require(graph_edges_mcp["isError"] is False, "MCP list_graph_edges returned error")
+        require(
+            "edge:module_imports_module:module:pkg.cli->module:pkg.helpers"
+            in {item["id"] for item in graph_edges_mcp["structuredContent"]["edges"]},
+            f"MCP list_graph_edges missing module edge: {graph_edges_mcp}",
+        )
+        graph_neighbors = mcp.request(
+            "tools/call",
+            {"name": "reveng.graph_neighbors", "arguments": {"node_id": "module:pkg.cli", "direction": "out"}},
+        )["result"]
+        require(graph_neighbors["isError"] is False, "MCP graph_neighbors returned error")
+        require(
+            "module:pkg.helpers" in {item["id"] for item in graph_neighbors["structuredContent"]["nodes"]},
+            f"MCP graph_neighbors missing adjacent module: {graph_neighbors}",
+        )
     finally:
         mcp.close()
 
@@ -282,6 +329,8 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
         "dependencies": sorted(deps),
         "routes": sorted(routes),
         "module_edges": len(graph_edges),
+        "repo_graph_nodes": len(repo_graph_nodes),
+        "repo_graph_edges": len(repo_graph_edges),
         "case_id": case_manifest["case_id"],
         "mcp_tools_checked": True,
         "corpus_records": len(corpus),

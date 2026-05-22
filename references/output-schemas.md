@@ -24,7 +24,7 @@ Structured outputs:
 - `repo_map.json`
 - `repo_corpus.jsonl`
 
-See `references/repo-analysis-schema.md` for field definitions.
+`repo_map.json` includes both the legacy Python `module_graph` and the general `graph` evidence model. `repo_corpus.jsonl` records include `graph_refs` when exported with `--repo-map`. See `references/repo-analysis-schema.md` and `references/graph-analysis-schema.md` for field definitions.
 
 ## triage_report
 

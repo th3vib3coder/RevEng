@@ -186,7 +186,7 @@ Run scripts from the repository root.
 mkdir -p case
 python3 scripts/repo_inventory.py /path/to/repo --json-out case/repo_inventory.json
 python3 scripts/repo_map.py /path/to/repo --json-out case/repo_map.json
-python3 scripts/repo_corpus_export.py /path/to/repo --jsonl-out case/repo_corpus.jsonl
+python3 scripts/repo_corpus_export.py /path/to/repo --repo-map case/repo_map.json --jsonl-out case/repo_corpus.jsonl
 python3 scripts/case_manifest.py --case-dir case --target /path/to/repo \
   --artifact repo_inventory=case/repo_inventory.json \
   --artifact repo_map=case/repo_map.json \
@@ -203,12 +203,15 @@ python3 scripts/repo_corpus_mcp.py --corpus case/repo_corpus.jsonl
 The server exposes:
 
 - `reveng.corpus_summary`
-- `reveng.search_corpus`
 - `reveng.get_record`
+- `reveng.graph_neighbors` (requires `--repo-map repo_map.json`; returns adjacent graph nodes and edges for one node id)
+- `reveng.list_graph_edges` (requires `--repo-map repo_map.json`; filters general repo graph edges by kind/source/target)
+- `reveng.list_graph_nodes` (requires `--repo-map repo_map.json`; filters general repo graph nodes by kind/query)
 - `reveng.list_symbols`
 - `reveng.module_graph` (requires `--repo-map repo_map.json`; returns internal edges, external imports, hard-capped fan-in/fan-out metrics, and cycles)
+- `reveng.search_corpus`
 
-Pass `--repo-map case/repo_map.json` to also enable module-graph queries:
+Pass `--repo-map case/repo_map.json` to also enable module-graph and general repo-graph queries:
 
 ```bash
 python3 scripts/repo_corpus_mcp.py --corpus case/repo_corpus.jsonl --repo-map case/repo_map.json
@@ -256,8 +259,8 @@ Important outputs:
 
 - `case_manifest.json`: deterministic case index with analyzed target hash, artifact hashes, caps, helper-script hashes, ignored directories, warnings, and static-first safety posture.
 - `repo_inventory.json`: repository file inventory, language counts, manifest list, hashes.
-- `repo_map.json`: entrypoints, dependencies, routes, plugin surfaces, configs, imports, Python module graph, risks, limitations.
-- `repo_corpus.jsonl`: one JSON record per included file with path, kind, language, SHA256, summary, symbols, imports, and evidence excerpts.
+- `repo_map.json`: entrypoints, dependencies, routes, plugin surfaces, configs, imports, Python module graph, general evidence graph, risks, limitations.
+- `repo_corpus.jsonl`: one JSON record per included file with path, kind, language, SHA256, summary, symbols, imports, evidence excerpts, and optional `graph_refs`.
 - `repo_corpus_mcp.py`: read-only stdio MCP server for querying `repo_corpus.jsonl`.
 - `sample.triage.json`: binary hash/type/entropy/strings/tool-output report.
 - `iocs.json`: grouped traceable IOC report.

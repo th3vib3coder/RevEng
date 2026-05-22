@@ -97,6 +97,9 @@ def test_repo_corpus_mcp_initialize_and_tools_list(tmp_path: Path) -> None:
         assert tool_names == sorted(tool_names)
         assert "reveng.search_corpus" in tool_names
         assert "reveng.get_record" in tool_names
+        assert "reveng.graph_neighbors" in tool_names
+        assert "reveng.list_graph_edges" in tool_names
+        assert "reveng.list_graph_nodes" in tool_names
         assert "reveng.list_symbols" in tool_names
     finally:
         client.close()

@@ -189,6 +189,7 @@ def python_definitions(text: str) -> dict[str, Any] | None:
                             "method": decorator.func.attr.upper(),
                             "path": decorator.args[0].value,
                             "line": decorator.lineno,
+                            "handler": node.name,
                         }
                     )
         if isinstance(node, ast.Import):

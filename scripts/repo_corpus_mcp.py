@@ -108,6 +108,9 @@ def compact_record(record: dict[str, Any]) -> dict[str, Any]:
     evidence = record.get("evidence", [])
     if not isinstance(evidence, list):
         evidence = []
+    graph_refs = record.get("graph_refs", {})
+    if not isinstance(graph_refs, dict):
+        graph_refs = {}
     return {
         "path": record.get("path", ""),
         "kind": record.get("kind", "unknown"),
@@ -117,6 +120,10 @@ def compact_record(record: dict[str, Any]) -> dict[str, Any]:
         "symbols": list(record.get("symbols", []) or [])[:50],
         "imports": list(record.get("imports", []) or [])[:50],
         "evidence": evidence[:MAX_EVIDENCE_LINES],
+        "graph_refs": {
+            "nodes": list(graph_refs.get("nodes", []) or [])[:50],
+            "edges": list(graph_refs.get("edges", []) or [])[:50],
+        },
     }
 
 
@@ -274,6 +281,197 @@ def module_graph_metrics_view(metrics: Any, module: str | None, limit: int) -> d
     }
 
 
+def graph_unavailable_error() -> dict[str, Any]:
+    return tool_error(
+        "graph_unavailable",
+        "repo graph not loaded; start the server with --repo-map <repo_map.json>",
+    )
+
+
+def clean_graph_nodes(repo_graph: dict[str, Any]) -> list[dict[str, Any]]:
+    nodes: list[dict[str, Any]] = []
+    for node in repo_graph.get("nodes", []) or []:
+        if isinstance(node, dict) and isinstance(node.get("id"), str):
+            nodes.append(node)
+    return sorted(nodes, key=lambda item: item["id"])
+
+
+def clean_graph_edges(repo_graph: dict[str, Any]) -> list[dict[str, Any]]:
+    edges: list[dict[str, Any]] = []
+    for edge in repo_graph.get("edges", []) or []:
+        if (
+            isinstance(edge, dict)
+            and isinstance(edge.get("id"), str)
+            and isinstance(edge.get("from"), str)
+            and isinstance(edge.get("to"), str)
+        ):
+            edges.append(edge)
+    return sorted(edges, key=lambda item: item["id"])
+
+
+def compact_graph_node(node: dict[str, Any]) -> dict[str, Any]:
+    compact = {
+        "id": node.get("id", ""),
+        "kind": node.get("kind", "unknown"),
+        "label": str(node.get("label", ""))[:MAX_TEXT_CHARS],
+    }
+    for key in ("path", "language", "file_kind", "module", "symbol", "ecosystem", "surface", "entrypoint_kind"):
+        if key in node:
+            compact[key] = node[key]
+    if "route" in node and isinstance(node["route"], dict):
+        compact["route"] = node["route"]
+    if "target" in node:
+        compact["target"] = str(node["target"])[:MAX_TEXT_CHARS]
+    return compact
+
+
+def compact_graph_edge(edge: dict[str, Any]) -> dict[str, Any]:
+    evidence = edge.get("evidence", [])
+    if not isinstance(evidence, list):
+        evidence = []
+    compact = {
+        "id": edge.get("id", ""),
+        "from": edge.get("from", ""),
+        "to": edge.get("to", ""),
+        "kind": edge.get("kind", "unknown"),
+        "evidence": evidence[:MAX_EVIDENCE_LINES],
+    }
+    if isinstance(edge.get("metadata"), dict):
+        compact["metadata"] = edge["metadata"]
+    return compact
+
+
+def tool_list_graph_nodes(repo_graph: dict[str, Any] | None, args: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(repo_graph, dict):
+        return graph_unavailable_error()
+    kind = args.get("kind")
+    query = str(args.get("query", "")).lower()
+    if kind is not None and not isinstance(kind, str):
+        raise ToolInputError("kind must be a string when provided")
+    limit = bounded_limit(args.get("limit"))
+    start = cursor_to_int(args.get("cursor"))
+    nodes = clean_graph_nodes(repo_graph)
+    filtered: list[dict[str, Any]] = []
+    for node in nodes:
+        if kind and node.get("kind") != kind:
+            continue
+        haystack = "\n".join(str(node.get(key, "")) for key in ("id", "kind", "label", "path", "module", "symbol")).lower()
+        if query and query not in haystack:
+            continue
+        filtered.append(node)
+    page = filtered[start : start + limit]
+    next_cursor = str(start + limit) if start + limit < len(filtered) else None
+    done = next_cursor is None
+    text = f"{len(page)} graph node(s)" + ("" if done else f"; cursor {next_cursor}")
+    return tool_result(
+        text,
+        {
+            "nodes": [compact_graph_node(node) for node in page],
+            "kind": kind,
+            "query": query,
+            "nextCursor": next_cursor,
+            "done": done,
+            "limit": limit,
+        },
+    )
+
+
+def tool_list_graph_edges(repo_graph: dict[str, Any] | None, args: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(repo_graph, dict):
+        return graph_unavailable_error()
+    kind = args.get("kind")
+    src = args.get("from")
+    dst = args.get("to")
+    for name, value in (("kind", kind), ("from", src), ("to", dst)):
+        if value is not None and not isinstance(value, str):
+            raise ToolInputError(f"{name} must be a string when provided")
+    limit = bounded_limit(args.get("limit"))
+    start = cursor_to_int(args.get("cursor"))
+    filtered: list[dict[str, Any]] = []
+    for edge in clean_graph_edges(repo_graph):
+        if kind and edge.get("kind") != kind:
+            continue
+        if src and edge.get("from") != src:
+            continue
+        if dst and edge.get("to") != dst:
+            continue
+        filtered.append(edge)
+    page = filtered[start : start + limit]
+    next_cursor = str(start + limit) if start + limit < len(filtered) else None
+    done = next_cursor is None
+    text = f"{len(page)} graph edge(s)" + ("" if done else f"; cursor {next_cursor}")
+    return tool_result(
+        text,
+        {
+            "edges": [compact_graph_edge(edge) for edge in page],
+            "kind": kind,
+            "from": src,
+            "to": dst,
+            "nextCursor": next_cursor,
+            "done": done,
+            "limit": limit,
+        },
+    )
+
+
+def tool_graph_neighbors(repo_graph: dict[str, Any] | None, args: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(repo_graph, dict):
+        return graph_unavailable_error()
+    node_id = require_text_arg(args, "node_id")
+    direction = args.get("direction", "both")
+    if direction not in ("in", "out", "both"):
+        raise ToolInputError("direction must be one of: in, out, both")
+    edge_kind = args.get("edge_kind")
+    if edge_kind is not None and not isinstance(edge_kind, str):
+        raise ToolInputError("edge_kind must be a string when provided")
+    limit = bounded_limit(args.get("limit"))
+    start = cursor_to_int(args.get("cursor"))
+    nodes_by_id = {node["id"]: node for node in clean_graph_nodes(repo_graph)}
+    if node_id not in nodes_by_id:
+        return tool_result(
+            f"Graph node not found: {node_id}",
+            {"node_id": node_id, "nodes": [], "edges": [], "nextCursor": None, "done": True, "limit": limit},
+        )
+
+    filtered: list[dict[str, Any]] = []
+    for edge in clean_graph_edges(repo_graph):
+        outgoing = edge.get("from") == node_id
+        incoming = edge.get("to") == node_id
+        if direction == "out" and not outgoing:
+            continue
+        if direction == "in" and not incoming:
+            continue
+        if direction == "both" and not (outgoing or incoming):
+            continue
+        if edge_kind and edge.get("kind") != edge_kind:
+            continue
+        filtered.append(edge)
+    page = filtered[start : start + limit]
+    next_cursor = str(start + limit) if start + limit < len(filtered) else None
+    adjacent_ids: set[str] = set()
+    for edge in page:
+        if edge.get("from") == node_id:
+            adjacent_ids.add(str(edge.get("to")))
+        if edge.get("to") == node_id:
+            adjacent_ids.add(str(edge.get("from")))
+    adjacent_nodes = [nodes_by_id[adjacent_id] for adjacent_id in sorted(adjacent_ids) if adjacent_id in nodes_by_id]
+    done = next_cursor is None
+    text = f"{len(page)} neighbor edge(s) for {node_id}" + ("" if done else f"; cursor {next_cursor}")
+    return tool_result(
+        text,
+        {
+            "node_id": node_id,
+            "direction": direction,
+            "edge_kind": edge_kind,
+            "nodes": [compact_graph_node(node) for node in adjacent_nodes],
+            "edges": [compact_graph_edge(edge) for edge in page],
+            "nextCursor": next_cursor,
+            "done": done,
+            "limit": limit,
+        },
+    )
+
+
 def tool_module_graph(module_graph: dict[str, Any] | None, args: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(module_graph, dict):
         return tool_error(
@@ -343,6 +541,54 @@ TOOLS: list[dict[str, Any]] = [
         },
     },
     {
+        "name": "reveng.graph_neighbors",
+        "title": "RevEng Graph Neighbors",
+        "description": "Return adjacent repo graph nodes and edges for one node id. Read-only; requires --repo-map.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "node_id": {"type": "string"},
+                "direction": {"type": "string", "enum": ["in", "out", "both"]},
+                "edge_kind": {"type": "string"},
+                "cursor": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT},
+            },
+            "required": ["node_id"],
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "reveng.list_graph_edges",
+        "title": "RevEng List Graph Edges",
+        "description": "List repo graph edges with kind/source/target filters and cursor pagination. Read-only; requires --repo-map.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string"},
+                "from": {"type": "string"},
+                "to": {"type": "string"},
+                "cursor": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "reveng.list_graph_nodes",
+        "title": "RevEng List Graph Nodes",
+        "description": "List repo graph nodes with kind/query filters and cursor pagination. Read-only; requires --repo-map.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "kind": {"type": "string"},
+                "query": {"type": "string"},
+                "cursor": {"type": "string"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
         "name": "reveng.list_symbols",
         "title": "RevEng List Symbols",
         "description": "List symbol hints from the corpus with cursor pagination. Does not execute repository code.",
@@ -397,6 +643,12 @@ TOOL_HANDLERS = {
     "reveng.search_corpus": tool_search_corpus,
 }
 
+GRAPH_TOOL_HANDLERS = {
+    "reveng.graph_neighbors": tool_graph_neighbors,
+    "reveng.list_graph_edges": tool_list_graph_edges,
+    "reveng.list_graph_nodes": tool_list_graph_nodes,
+}
+
 
 def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
     return {
@@ -415,10 +667,15 @@ def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def handle_tools_call(corpus: Path, module_graph: dict[str, Any] | None, params: dict[str, Any]) -> dict[str, Any]:
+def handle_tools_call(
+    corpus: Path,
+    module_graph: dict[str, Any] | None,
+    repo_graph: dict[str, Any] | None,
+    params: dict[str, Any],
+) -> dict[str, Any]:
     name = params.get("name")
     args = params.get("arguments", {})
-    if not isinstance(name, str) or (name not in TOOL_HANDLERS and name != "reveng.module_graph"):
+    if not isinstance(name, str) or (name not in TOOL_HANDLERS and name not in GRAPH_TOOL_HANDLERS and name != "reveng.module_graph"):
         raise KeyError(f"unknown tool: {name!r}")
     if args is None:
         args = {}
@@ -427,12 +684,19 @@ def handle_tools_call(corpus: Path, module_graph: dict[str, Any] | None, params:
     try:
         if name == "reveng.module_graph":
             return tool_module_graph(module_graph, args)
+        if name in GRAPH_TOOL_HANDLERS:
+            return GRAPH_TOOL_HANDLERS[name](repo_graph, args)
         return TOOL_HANDLERS[name](corpus, args)
     except ToolInputError as exc:
         return tool_error("invalid_arguments", str(exc))
 
 
-def handle_request(corpus: Path, module_graph: dict[str, Any] | None, message: dict[str, Any]) -> dict[str, Any] | None:
+def handle_request(
+    corpus: Path,
+    module_graph: dict[str, Any] | None,
+    repo_graph: dict[str, Any] | None,
+    message: dict[str, Any],
+) -> dict[str, Any] | None:
     request_id = message.get("id")
     method = message.get("method")
     params = message.get("params", {})
@@ -448,7 +712,7 @@ def handle_request(corpus: Path, module_graph: dict[str, Any] | None, message: d
         if method == "tools/list":
             return jsonrpc_result(request_id, {"resultType": "complete", "tools": TOOLS})
         if method == "tools/call":
-            return jsonrpc_result(request_id, handle_tools_call(corpus, module_graph, params))
+            return jsonrpc_result(request_id, handle_tools_call(corpus, module_graph, repo_graph, params))
         return jsonrpc_error(request_id, -32601, f"method not found: {method}")
     except KeyError as exc:
         return jsonrpc_error(request_id, -32602, str(exc))
@@ -456,7 +720,7 @@ def handle_request(corpus: Path, module_graph: dict[str, Any] | None, message: d
         return jsonrpc_error(request_id, -32603, f"internal error: {exc}")
 
 
-def serve_stdio(corpus: Path, module_graph: dict[str, Any] | None) -> int:
+def serve_stdio(corpus: Path, module_graph: dict[str, Any] | None, repo_graph: dict[str, Any] | None) -> int:
     if not corpus.is_file():
         raise SystemExit(f"corpus not found: {corpus}")
     for line in sys.stdin:
@@ -474,7 +738,7 @@ def serve_stdio(corpus: Path, module_graph: dict[str, Any] | None) -> int:
             if not isinstance(item, dict):
                 responses.append(jsonrpc_error(None, -32600, "invalid request"))
                 continue
-            response = handle_request(corpus, module_graph, item)
+            response = handle_request(corpus, module_graph, repo_graph, item)
             if response is not None:
                 responses.append(response)
         if isinstance(message, list):
@@ -486,22 +750,33 @@ def serve_stdio(corpus: Path, module_graph: dict[str, Any] | None) -> int:
     return 0
 
 
-def load_module_graph(path: Path) -> dict[str, Any] | None:
+def load_repo_map(path: Path) -> dict[str, Any] | None:
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, json.JSONDecodeError):
         return None
-    graph = data.get("module_graph") if isinstance(data, dict) else None
+    return data if isinstance(data, dict) else None
+
+
+def load_module_graph(repo_map: dict[str, Any] | None) -> dict[str, Any] | None:
+    graph = repo_map.get("module_graph") if isinstance(repo_map, dict) else None
+    return graph if isinstance(graph, dict) else None
+
+
+def load_repo_graph(repo_map: dict[str, Any] | None) -> dict[str, Any] | None:
+    graph = repo_map.get("graph") if isinstance(repo_map, dict) else None
     return graph if isinstance(graph, dict) else None
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read-only MCP stdio server for RevEng repo_corpus.jsonl")
     parser.add_argument("--corpus", required=True, help="Path to repo_corpus.jsonl generated by repo_corpus_export.py")
-    parser.add_argument("--repo-map", help="Optional repo_map.json to enable the reveng.module_graph tool")
+    parser.add_argument("--repo-map", help="Optional repo_map.json to enable module graph and general repo graph tools")
     args = parser.parse_args()
-    module_graph = load_module_graph(Path(args.repo_map)) if args.repo_map else None
-    return serve_stdio(Path(args.corpus).resolve(), module_graph)
+    repo_map = load_repo_map(Path(args.repo_map)) if args.repo_map else None
+    module_graph = load_module_graph(repo_map)
+    repo_graph = load_repo_graph(repo_map)
+    return serve_stdio(Path(args.corpus).resolve(), module_graph, repo_graph)
 
 
 if __name__ == "__main__":

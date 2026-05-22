@@ -47,11 +47,18 @@ fixture-cli = "pkg.cli:main"
     )
     (repo / "pkg" / "cli.py").write_text(
         """
+from fastapi import FastAPI
 from pkg.helpers import format_value
 import requests
 
+app = FastAPI()
+
 class Runner:
     pass
+
+@app.get("/items/{item_id}")
+def read_item(item_id: str):
+    return {"item_id": item_id}
 
 def main():
     return format_value("ok")
@@ -144,6 +151,7 @@ def test_repo_map_extracts_entrypoints_dependencies_routes_and_plugin_surfaces(t
     assert "requests>=2" in dependency_names
     assert "express" in dependency_names
     assert "/health" in route_paths
+    assert "/items/{item_id}" in route_paths
     assert ".codex-plugin/plugin.json" in plugin_paths
     assert ".claude-plugin/plugin.json" in plugin_paths
     assert payload["limitations"]
@@ -166,6 +174,35 @@ def test_repo_map_builds_internal_python_module_graph(tmp_path: Path) -> None:
     assert ("pkg.feature", "pkg.helpers", ".helpers") in edges
     assert ("pkg.cli", "requests") in external_imports
     assert not any(edge[2] == "requests" for edge in edges)
+
+
+def test_repo_map_emits_general_repo_graph(tmp_path: Path) -> None:
+    repo = make_fixture(tmp_path)
+    out = tmp_path / "repo_map.json"
+
+    run_script("repo_map.py", str(repo), "--json-out", str(out))
+
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    graph = payload["graph"]
+    node_ids = {node["id"] for node in graph["nodes"]}
+    edges = {(edge["from"], edge["to"], edge["kind"]) for edge in graph["edges"]}
+    edge_ids = {edge["id"] for edge in graph["edges"]}
+
+    assert graph["schema"] == "reveng.repo_graph.v1"
+    assert "file:pkg/cli.py" in node_ids
+    assert "module:pkg.cli" in node_ids
+    assert "symbol:pkg/cli.py#main" in node_ids
+    assert "route:GET:/health" in node_ids
+    assert "route:GET:/items/{item_id}" in node_ids
+    assert "dependency:python:requests>=2" in node_ids
+    assert "plugin:.codex-plugin/plugin.json" in node_ids
+    assert ("file:pkg/cli.py", "symbol:pkg/cli.py#main", "file_defines_symbol") in edges
+    assert ("file:pkg/cli.py", "module:pkg.cli", "file_represents_module") in edges
+    assert ("module:pkg.cli", "module:pkg.helpers", "module_imports_module") in edges
+    assert ("file:src/server.js", "route:GET:/health", "file_exposes_route") in edges
+    assert ("route:GET:/items/{item_id}", "symbol:pkg/cli.py#read_item", "route_bound_to_symbol") in edges
+    assert "edge:file_defines_symbol:file:pkg/cli.py->symbol:pkg/cli.py#main" in edge_ids
+    assert graph["limitations"]
 
 
 def test_pyproject_fallback_extracts_multiline_dependencies_without_tomllib() -> None:
@@ -208,3 +245,45 @@ def test_repo_corpus_export_emits_stable_records_with_hashes(tmp_path: Path) -> 
     assert "pkg.helpers" in cli_record["imports"]
     assert "requests" in cli_record["imports"]
     assert cli_record["evidence"]
+
+
+def test_repo_corpus_export_links_records_to_repo_graph(tmp_path: Path) -> None:
+    repo = make_fixture(tmp_path)
+    map_out = tmp_path / "repo_map.json"
+    corpus_out = tmp_path / "repo_corpus.jsonl"
+
+    run_script("repo_map.py", str(repo), "--json-out", str(map_out))
+    run_script("repo_corpus_export.py", str(repo), "--repo-map", str(map_out), "--jsonl-out", str(corpus_out))
+
+    records = [json.loads(line) for line in corpus_out.read_text(encoding="utf-8").splitlines()]
+    cli_record = next(record for record in records if record["path"] == "pkg/cli.py")
+    refs = cli_record["graph_refs"]
+    assert "file:pkg/cli.py" in refs["nodes"]
+    assert "module:pkg.cli" in refs["nodes"]
+    assert "symbol:pkg/cli.py#main" in refs["nodes"]
+    assert "edge:file_defines_symbol:file:pkg/cli.py->symbol:pkg/cli.py#main" in refs["edges"]
+    assert "edge:file_represents_module:file:pkg/cli.py->module:pkg.cli" in refs["edges"]
+
+
+def test_repo_corpus_export_fails_fast_on_missing_repo_map(tmp_path: Path) -> None:
+    repo = make_fixture(tmp_path)
+    out = tmp_path / "repo_corpus.jsonl"
+    missing = tmp_path / "missing_repo_map.json"
+
+    result = subprocess.run(
+        [
+            sys.executable,
+            str(ROOT / "scripts" / "repo_corpus_export.py"),
+            str(repo),
+            "--repo-map",
+            str(missing),
+            "--jsonl-out",
+            str(out),
+        ],
+        text=True,
+        capture_output=True,
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert "repo_map not readable" in result.stderr

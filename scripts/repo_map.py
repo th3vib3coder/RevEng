@@ -5,7 +5,7 @@ import re
 from pathlib import Path
 from typing import Any
 
-from repo_common import classify_kind, iter_repo_files, load_json, python_definitions, read_text, repo_relative, write_json
+from repo_common import classify_kind, detect_language, iter_repo_files, load_json, python_definitions, read_text, repo_relative, write_json
 
 try:
     import tomllib
@@ -22,6 +22,13 @@ IMPORT_PATTERNS = [
     re.compile(r"^\s*(?:from\s+([\w.]+)\s+import|import\s+([\w.]+))", re.M),
     re.compile(r"^\s*import\s+.*?\s+from\s+['\"]([^'\"]+)['\"]", re.M),
     re.compile(r"\brequire\(\s*['\"]([^'\"]+)['\"]\s*\)", re.M),
+]
+
+SYMBOL_PATTERNS = [
+    re.compile(r"^\s*(?:def|async def)\s+([A-Za-z_][\w]*)\s*\(", re.M),
+    re.compile(r"^\s*class\s+([A-Za-z_][\w]*)\b", re.M),
+    re.compile(r"^\s*(?:export\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(", re.M),
+    re.compile(r"^\s*(?:export\s+)?(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*=", re.M),
 ]
 
 PYTHON_SUFFIXES = {".py", ".pyi"}
@@ -118,6 +125,13 @@ def extract_imports(text: str) -> list[str]:
                 if group:
                     imports.add(group)
     return sorted(imports)
+
+
+def extract_symbols(text: str) -> list[str]:
+    symbols: set[str] = set()
+    for pattern in SYMBOL_PATTERNS:
+        symbols.update(match.group(1) for match in pattern.finditer(text))
+    return sorted(symbols)
 
 
 def extract_routes(text: str, rel: str) -> list[dict[str, Any]]:
@@ -285,6 +299,199 @@ def module_graph_metrics(modules: list[str], edges: list[dict[str, Any]]) -> dic
     }
 
 
+def edge_id(kind: str, src: str, dst: str) -> str:
+    return f"edge:{kind}:{src}->{dst}"
+
+
+def add_node(nodes: dict[str, dict[str, Any]], node_id: str, kind: str, label: str, **fields: Any) -> None:
+    node = {"id": node_id, "kind": kind, "label": label}
+    for key, value in fields.items():
+        if value not in (None, "", [], {}):
+            node[key] = value
+    nodes[node_id] = node
+
+
+def add_edge(
+    edges: dict[str, dict[str, Any]],
+    kind: str,
+    src: str,
+    dst: str,
+    *,
+    evidence: list[dict[str, Any]] | None = None,
+    metadata: dict[str, Any] | None = None,
+) -> None:
+    eid = edge_id(kind, src, dst)
+    edge: dict[str, Any] = {"id": eid, "from": src, "to": dst, "kind": kind}
+    if evidence:
+        edge["evidence"] = evidence
+    if metadata:
+        edge["metadata"] = metadata
+    edges[eid] = edge
+
+
+def graph_metrics(nodes: dict[str, dict[str, Any]], edges: dict[str, dict[str, Any]]) -> dict[str, Any]:
+    node_kinds: dict[str, int] = {}
+    edge_kinds: dict[str, int] = {}
+    for node in nodes.values():
+        kind = str(node.get("kind", "unknown"))
+        node_kinds[kind] = node_kinds.get(kind, 0) + 1
+    for edge in edges.values():
+        kind = str(edge.get("kind", "unknown"))
+        edge_kinds[kind] = edge_kinds.get(kind, 0) + 1
+    return {
+        "node_count": len(nodes),
+        "edge_count": len(edges),
+        "node_kinds": dict(sorted(node_kinds.items())),
+        "edge_kinds": dict(sorted(edge_kinds.items())),
+    }
+
+
+def build_repo_graph(
+    files: dict[str, dict[str, Any]],
+    symbols_by_path: dict[str, list[str]],
+    entrypoints: list[dict[str, Any]],
+    dependencies: list[dict[str, Any]],
+    routes: list[dict[str, Any]],
+    plugins: list[dict[str, Any]],
+    module_graph: dict[str, Any],
+) -> dict[str, Any]:
+    nodes: dict[str, dict[str, Any]] = {}
+    edges: dict[str, dict[str, Any]] = {}
+
+    for rel, metadata in sorted(files.items()):
+        add_node(
+            nodes,
+            f"file:{rel}",
+            "file",
+            rel,
+            path=rel,
+            language=metadata.get("language"),
+            file_kind=metadata.get("kind"),
+        )
+
+    for rel, symbols in sorted(symbols_by_path.items()):
+        file_node = f"file:{rel}"
+        for symbol in symbols:
+            symbol_node = f"symbol:{rel}#{symbol}"
+            add_node(nodes, symbol_node, "symbol", symbol, path=rel, symbol=symbol)
+            add_edge(edges, "file_defines_symbol", file_node, symbol_node, evidence=[{"source": rel}])
+
+    for module in module_graph.get("modules", []) or []:
+        if not isinstance(module, dict):
+            continue
+        name = module.get("module")
+        path = module.get("path")
+        if not isinstance(name, str) or not isinstance(path, str):
+            continue
+        module_node = f"module:{name}"
+        file_node = f"file:{path}"
+        add_node(nodes, module_node, "module", name, path=path, module=name)
+        add_edge(edges, "file_represents_module", file_node, module_node, evidence=[{"source": path}])
+
+    for edge in module_graph.get("edges", []) or []:
+        if not isinstance(edge, dict):
+            continue
+        src = edge.get("from")
+        dst = edge.get("to")
+        source = edge.get("from_path")
+        if not isinstance(src, str) or not isinstance(dst, str):
+            continue
+        add_edge(
+            edges,
+            "module_imports_module",
+            f"module:{src}",
+            f"module:{dst}",
+            evidence=[{"source": source}] if isinstance(source, str) else None,
+            metadata={"import": edge.get("import")} if isinstance(edge.get("import"), str) else None,
+        )
+
+    for item in module_graph.get("external_imports", []) or []:
+        if not isinstance(item, dict):
+            continue
+        src = item.get("from")
+        import_name = item.get("import")
+        source = item.get("from_path")
+        if not isinstance(src, str) or not isinstance(import_name, str):
+            continue
+        import_node = f"external_import:{import_name}"
+        add_node(nodes, import_node, "external_import", import_name, import_name=import_name)
+        add_edge(
+            edges,
+            "module_imports_external",
+            f"module:{src}",
+            import_node,
+            evidence=[{"source": source}] if isinstance(source, str) else None,
+        )
+
+    for route in routes:
+        method = str(route.get("method", "")).upper()
+        path = str(route.get("path", ""))
+        source = route.get("source")
+        if not method or not path or not isinstance(source, str):
+            continue
+        route_node = f"route:{method}:{path}"
+        add_node(nodes, route_node, "route", f"{method} {path}", path=source, route={"method": method, "path": path})
+        evidence = [{"source": source, "line": route.get("line")}] if route.get("line") else [{"source": source}]
+        add_edge(edges, "file_exposes_route", f"file:{source}", route_node, evidence=evidence)
+        handler = route.get("handler")
+        if isinstance(handler, str) and handler:
+            handler_node = f"symbol:{source}#{handler}"
+            if handler_node in nodes:
+                add_edge(edges, "route_bound_to_symbol", route_node, handler_node, evidence=evidence)
+
+    for dependency in dependencies:
+        ecosystem = str(dependency.get("ecosystem", "unknown"))
+        name = str(dependency.get("name", ""))
+        source = dependency.get("source")
+        if not name or not isinstance(source, str):
+            continue
+        dep_node = f"dependency:{ecosystem}:{name}"
+        add_node(nodes, dep_node, "dependency", name, ecosystem=ecosystem, version=dependency.get("version"))
+        add_edge(
+            edges,
+            "manifest_declares_dependency",
+            f"file:{source}",
+            dep_node,
+            evidence=[{"source": source, "section": dependency.get("section")}],
+        )
+
+    for entrypoint in entrypoints:
+        kind = str(entrypoint.get("kind", "entrypoint"))
+        name = str(entrypoint.get("name", ""))
+        source = entrypoint.get("source")
+        if not name or not isinstance(source, str):
+            continue
+        entry_node = f"entrypoint:{kind}:{name}"
+        add_node(nodes, entry_node, "entrypoint", name, entrypoint_kind=kind, target=entrypoint.get("target"))
+        add_edge(
+            edges,
+            "manifest_declares_entrypoint",
+            f"file:{source}",
+            entry_node,
+            evidence=[{"source": source}],
+        )
+
+    for plugin in plugins:
+        path = plugin.get("path")
+        if not isinstance(path, str):
+            continue
+        plugin_node = f"plugin:{path}"
+        add_node(nodes, plugin_node, "plugin", path, path=path, surface=plugin.get("surface"))
+        add_edge(edges, "file_declares_plugin", f"file:{path}", plugin_node, evidence=[{"source": path}])
+
+    return {
+        "schema": "reveng.repo_graph.v1",
+        "nodes": [nodes[node_id] for node_id in sorted(nodes)],
+        "edges": [edges[eid] for eid in sorted(edges)],
+        "metrics": graph_metrics(nodes, edges),
+        "limitations": [
+            "Repo graph is a static evidence graph; it does not imply runtime reachability or execution order.",
+            "Only Python import edges are resolved to internal modules in the zero-dependency implementation.",
+            "Non-Python symbols, routes, and imports remain regex-derived hints and require human confirmation.",
+        ],
+    }
+
+
 def static_risks(root: Path, rel: str, text: str, kind: str) -> list[dict[str, Any]]:
     risks: list[dict[str, Any]] = []
     lowered = text.lower()
@@ -309,10 +516,13 @@ def build_map(root: Path) -> dict[str, Any]:
     risks: list[dict[str, Any]] = []
     python_modules: dict[str, str] = {}
     python_imports: dict[str, list[str]] = {}
+    files: dict[str, dict[str, Any]] = {}
+    symbols_by_path: dict[str, list[str]] = {}
 
     for path in iter_repo_files(root):
         rel = repo_relative(root, path)
         kind = classify_kind(root, path)
+        files[rel] = {"kind": kind, "language": detect_language(path)}
         if path.suffix.lower() in PYTHON_SUFFIXES:
             module = python_module_name(root, path)
             if module:
@@ -338,11 +548,19 @@ def build_map(root: Path) -> dict[str, Any]:
                 module = python_module_name(root, path)
                 if module:
                     python_imports[module] = definitions["imports"]
+                if definitions["symbols"]:
+                    symbols_by_path[rel] = definitions["symbols"]
                 if definitions["imports"]:
                     imports.append({"path": rel, "imports": definitions["imports"]})
                 for route in definitions["routes"]:
-                    routes.append({"framework_hint": "python", "method": route["method"], "path": route["path"], "source": rel, "line": route["line"]})
+                    route_record = {"framework_hint": "python", "method": route["method"], "path": route["path"], "source": rel, "line": route["line"]}
+                    if route.get("handler"):
+                        route_record["handler"] = route["handler"]
+                    routes.append(route_record)
             else:
+                file_symbols = extract_symbols(text)
+                if file_symbols:
+                    symbols_by_path[rel] = file_symbols
                 file_imports = extract_imports(text)
                 if file_imports:
                     imports.append({"path": rel, "imports": file_imports})
@@ -351,6 +569,7 @@ def build_map(root: Path) -> dict[str, Any]:
         elif kind in {"manifest", "plugin_manifest", "config"}:
             risks.extend(static_risks(root, rel, read_text(path), kind))
 
+    module_graph = build_python_module_graph(python_modules, python_imports)
     return {
         "root": str(root),
         "entrypoints": sorted(entrypoints, key=lambda item: (item["source"], item["kind"], item["name"])),
@@ -359,7 +578,16 @@ def build_map(root: Path) -> dict[str, Any]:
         "plugins": sorted(plugins, key=lambda item: item["path"]),
         "configs": sorted(configs, key=lambda item: item["path"]),
         "imports": sorted(imports, key=lambda item: item["path"]),
-        "module_graph": build_python_module_graph(python_modules, python_imports),
+        "module_graph": module_graph,
+        "graph": build_repo_graph(
+            files,
+            symbols_by_path,
+            entrypoints,
+            dependencies,
+            routes,
+            plugins,
+            module_graph,
+        ),
         "risks": sorted(risks, key=lambda item: (item["source"], item["kind"])),
         "limitations": [
             "Static analysis only; repository code, tests, package managers, containers, and build scripts were not executed.",

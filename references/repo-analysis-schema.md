@@ -19,6 +19,7 @@
 - `configs`: CI, Docker, env, settings, and workflow files.
 - `imports`: source-level import hints by file.
 - `module_graph`: Python module graph with `modules`, internal import `edges`, unresolved/external `external_imports`, `metrics` (per-module `fan_in`/`fan_out` plus import `cycles` as strongly-connected components and self-loops), and graph-specific `limitations`.
+- `graph`: general static evidence graph. Nodes include files, Python modules, symbols, routes, entrypoints, dependencies, plugins, and external imports. Edges include file-to-symbol, file-to-module, module-imports-module, module-imports-external, file-to-route, route-to-handler symbol, manifest-to-entrypoint, manifest-to-dependency, and file-to-plugin relationships. See `references/graph-analysis-schema.md`.
 - `risks`: static supply-chain and execution-risk observations.
 - `limitations`: what was not executed or could not be inferred.
 
@@ -34,6 +35,7 @@ Each line is a JSON object:
 - `symbols`: statically extracted symbols such as classes, functions, exports, and route handlers.
 - `imports`: statically extracted import/dependency hints.
 - `evidence`: short line-numbered excerpts used for traceability.
+- `graph_refs`: optional stable node/edge ids from `repo_map.json` `graph`, present when `repo_corpus_export.py` is run with `--repo-map`.
 
 ## case_manifest.json
 
@@ -60,5 +62,8 @@ Tools:
 - `reveng.get_record`: retrieve one compact record by repository-relative path.
 - `reveng.list_symbols`: list symbol hints with cursor pagination.
 - `reveng.module_graph`: query the Python module dependency graph (internal edges, external imports, and hard-capped `metrics` fan-in/fan-out/cycles with `truncated`) from `repo_map.json`; read-only, cursor-paginated, requires the server started with `--repo-map`.
+- `reveng.list_graph_nodes`: query general repo graph nodes by `kind` and substring `query`; read-only, cursor-paginated, requires `--repo-map`.
+- `reveng.list_graph_edges`: query general repo graph edges by `kind`, `from`, and `to`; read-only, cursor-paginated, requires `--repo-map`.
+- `reveng.graph_neighbors`: query adjacent graph nodes/edges for a single `node_id`; read-only, cursor-paginated, requires `--repo-map`.
 
 Tool results return compact `content` text plus full `structuredContent`. Argument validation errors are returned as tool-visible `isError: true` results with a structured error object so an agent can self-correct without losing protocol state.

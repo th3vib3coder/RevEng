@@ -36,4 +36,6 @@ Example:
 python scripts/repo_corpus_mcp.py --corpus repo_corpus.jsonl
 ```
 
-It is read-only, newline-delimited JSON-RPC over stdio, and exposes paginated corpus tools only. It does not execute repository code, package managers, binaries, containers, or network calls.
+Pass `--repo-map repo_map.json` to enable module-graph and general repo-graph tools.
+
+It is read-only, newline-delimited JSON-RPC over stdio, and exposes paginated corpus/graph tools only. It does not execute repository code, package managers, binaries, containers, or network calls.

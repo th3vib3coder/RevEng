@@ -23,7 +23,7 @@ From the plugin root, run:
 mkdir -p case
 python3 scripts/repo_inventory.py /path/to/repo --json-out case/repo_inventory.json
 python3 scripts/repo_map.py /path/to/repo --json-out case/repo_map.json
-python3 scripts/repo_corpus_export.py /path/to/repo --jsonl-out case/repo_corpus.jsonl
+python3 scripts/repo_corpus_export.py /path/to/repo --repo-map case/repo_map.json --jsonl-out case/repo_corpus.jsonl
 python3 scripts/case_manifest.py --case-dir case --target /path/to/repo \
   --artifact repo_inventory=case/repo_inventory.json \
   --artifact repo_map=case/repo_map.json \
@@ -51,10 +51,11 @@ Read details only when needed:
 1. Inspect `repo_inventory.json` for languages, file mix, size, ignored directories, and manifest evidence.
 2. Inspect `repo_map.json` for entrypoints, dependencies, routes, plugin/MCP surfaces, configs, and risk observations.
 3. Inspect `repo_map.json` `module_graph` for Python internal import edges and unresolved/external imports.
-4. Inspect `case_manifest.json` for artifact hashes, target content hash, caps, ignored directories, warnings, and static-first safety posture.
-5. Sample `repo_corpus.jsonl` to verify records contain stable hashes, summaries, symbols, imports, and evidence excerpts.
-6. If MCP/RAG interaction is requested, use `repo_corpus_mcp.py` and prefer cursor-paginated tools over pasting large corpus sections into chat.
-7. Write the Markdown report with these sections:
+4. Inspect `repo_map.json` `graph` for file, module, symbol, route, entrypoint, dependency, and plugin nodes plus evidence-backed edges.
+5. Inspect `case_manifest.json` for artifact hashes, target content hash, caps, ignored directories, warnings, and static-first safety posture.
+6. Sample `repo_corpus.jsonl` to verify records contain stable hashes, summaries, symbols, imports, evidence excerpts, and `graph_refs` when exported with `--repo-map`.
+7. If MCP/RAG interaction is requested, use `repo_corpus_mcp.py` and prefer cursor-paginated tools (`reveng.list_graph_nodes`, `reveng.list_graph_edges`, `reveng.graph_neighbors`) over pasting large corpus sections into chat.
+8. Write the Markdown report with these sections:
    - Apparent purpose.
    - Structure and major modules.
    - Entrypoints and flows.

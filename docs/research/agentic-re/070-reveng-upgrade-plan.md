@@ -36,7 +36,7 @@ Acceptance:
 
 ## Phase 2: Graph-Aware Source Repository Analysis
 
-Status: partially implemented.
+Status: implemented for zero-dependency source-repo analysis.
 
 Implemented:
 
@@ -45,22 +45,11 @@ Implemented:
 - `module_graph.metrics` includes per-module `fan_in`, `fan_out`, and import `cycles`.
 - Cycle detection uses iterative Tarjan/SCC logic to avoid recursion-limit failures on deep graphs.
 - `repo_corpus_mcp.py` exposes `reveng.module_graph` with internal edges, external imports, hard-capped graph metrics, cursor pagination, and `truncated`.
-
-Remaining:
-
-Tasks:
-
-- Extend `repo_map.py` beyond current Python module graph into a general graph model:
-  - file -> imports -> internal module
-  - file -> symbol definitions
-  - route -> handler
-  - CLI entrypoint -> target callable when statically resolvable
-- Extend `repo_corpus_export.py` records with `graph_refs`.
-- Add MCP tools:
-  - `reveng.list_graph_nodes`
-  - `reveng.list_graph_edges`
-  - `reveng.graph_neighbors`
-- Add `references/graph-analysis-schema.md`.
+- `repo_map.py` emits `graph` with file, module, symbol, route, entrypoint, dependency, plugin, and external-import nodes.
+- General graph edges include file-to-symbol, file-to-module, module-to-module imports, module-to-external imports, file-to-route, route-to-handler symbol, manifest-to-entrypoint, manifest-to-dependency, and file-to-plugin relationships.
+- `repo_corpus_export.py --repo-map` adds `graph_refs` to every corpus record.
+- `repo_corpus_mcp.py` exposes `reveng.list_graph_nodes`, `reveng.list_graph_edges`, and `reveng.graph_neighbors`.
+- Added `references/graph-analysis-schema.md`.
 
 Tests:
 
@@ -264,15 +253,15 @@ Acceptance:
 Current status:
 
 1. Phase 1 is implemented for source repositories and file targets.
-2. Phase 2 is partially implemented through Python module graph edges, metrics, cycles, and MCP exposure.
+2. Phase 2 is implemented for the zero-dependency source-repo graph layer.
 3. Phase 3 is partially implemented through the read-only corpus MCP, structured tool errors, pagination, and caps.
 
 Next implementation targets:
 
-1. General graph schema and graph refs in `repo_corpus.jsonl`.
-2. MCP tools `reveng.list_graph_nodes`, `reveng.list_graph_edges`, and `reveng.graph_neighbors`.
-3. Injection-looking string tests and a standard MCP response envelope.
-4. External adapter capability schema for Ghidra/IDA/radare2/Binary Ninja exports.
+1. Injection-looking string tests and a standard MCP response envelope.
+2. External adapter capability schema for Ghidra/IDA/radare2/Binary Ninja exports.
+3. Ghidra fake graph export fixtures.
+4. Labeled eval fixtures for graph precision and unsafe-action detection.
 
 Reason:
 

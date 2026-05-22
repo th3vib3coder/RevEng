@@ -70,11 +70,67 @@ def summarize(rel: str, kind: str, language: str, text: str) -> str:
     return f"{kind} {language} file {rel}"
 
 
-def build_records(root: Path, max_file_bytes: int) -> list[dict[str, Any]]:
+def empty_graph_refs() -> dict[str, list[str]]:
+    return {"nodes": [], "edges": []}
+
+
+def add_ref(index: dict[str, dict[str, set[str]]], path: Any, ref_kind: str, ref_id: Any) -> None:
+    if not isinstance(path, str) or not isinstance(ref_id, str):
+        return
+    refs = index.setdefault(path, {"nodes": set(), "edges": set()})
+    refs[ref_kind].add(ref_id)
+
+
+def load_graph_refs(repo_map: Path | None) -> dict[str, dict[str, list[str]]]:
+    if repo_map is None:
+        return {}
+    try:
+        payload = json.loads(repo_map.read_text(encoding="utf-8"))
+    except OSError as exc:
+        raise SystemExit(f"repo_map not readable: {repo_map}: {exc}") from exc
+    except json.JSONDecodeError as exc:
+        raise SystemExit(f"repo_map is not valid JSON: {repo_map}: {exc}") from exc
+    graph = payload.get("graph") if isinstance(payload, dict) else None
+    if not isinstance(graph, dict):
+        raise SystemExit(f"repo_map does not contain a graph object: {repo_map}")
+
+    index: dict[str, dict[str, set[str]]] = {}
+    nodes_by_id: dict[str, dict[str, Any]] = {}
+    for node in graph.get("nodes", []) or []:
+        if not isinstance(node, dict):
+            continue
+        node_id = node.get("id")
+        if not isinstance(node_id, str):
+            continue
+        nodes_by_id[node_id] = node
+        add_ref(index, node.get("path"), "nodes", node_id)
+
+    for edge in graph.get("edges", []) or []:
+        if not isinstance(edge, dict):
+            continue
+        edge_id = edge.get("id")
+        if not isinstance(edge_id, str):
+            continue
+        for endpoint in ("from", "to"):
+            node = nodes_by_id.get(str(edge.get(endpoint)))
+            if node:
+                add_ref(index, node.get("path"), "edges", edge_id)
+        for evidence in edge.get("evidence", []) or []:
+            if isinstance(evidence, dict):
+                add_ref(index, evidence.get("source"), "edges", edge_id)
+
+    return {
+        path: {"nodes": sorted(refs["nodes"]), "edges": sorted(refs["edges"])}
+        for path, refs in sorted(index.items())
+    }
+
+
+def build_records(root: Path, max_file_bytes: int, graph_refs: dict[str, dict[str, list[str]]] | None = None) -> list[dict[str, Any]]:
     root = root.resolve()
     if not root.is_dir():
         raise SystemExit(f"not a directory: {root}")
 
+    graph_refs = graph_refs or {}
     records: list[dict[str, Any]] = []
     for path in iter_repo_files(root):
         rel = repo_relative(root, path)
@@ -100,6 +156,7 @@ def build_records(root: Path, max_file_bytes: int) -> list[dict[str, Any]]:
                 "symbols": symbols,
                 "imports": file_imports,
                 "evidence": evidence_lines(text),
+                "graph_refs": graph_refs.get(rel, empty_graph_refs()),
             }
         )
     return sorted(records, key=lambda item: item["path"])
@@ -109,10 +166,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Export repository corpus as JSONL")
     parser.add_argument("repo", help="Repository directory to inspect")
     parser.add_argument("--jsonl-out", required=True, help="Write corpus JSONL to this path")
+    parser.add_argument("--repo-map", help="Optional repo_map.json used to attach graph_refs to each record")
     parser.add_argument("--max-file-bytes", type=positive_int, default=500_000)
     args = parser.parse_args()
 
-    records = build_records(Path(args.repo), args.max_file_bytes)
+    records = build_records(Path(args.repo), args.max_file_bytes, load_graph_refs(Path(args.repo_map)) if args.repo_map else None)
     out = Path(args.jsonl_out)
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(out.suffix + ".tmp")
