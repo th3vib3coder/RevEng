@@ -46,6 +46,10 @@ JSON with `base_urls`, `endpoints`, `auth_headers`, `source_files`, `skipped_fil
 
 Read-only MCP tool results include compact `content` text plus `structuredContent`. `structuredContent.meta` contains `case_id`, `result_count`, `offset`, `next_offset`, `truncated`, and `warnings`.
 
+## golden_eval_summary
+
+JSON emitted by `scripts/run_golden_evals.py --json-out`. The top-level `schema` is `reveng.golden_evals.v1`. Each case records `name`, `capability`, `status`, `metrics`, and `details`. Metrics include `assertions`, `false_positives`, `false_negatives`, `missing_evidence`, and `unsafe_actions`; CI treats non-zero failure metrics as a regression.
+
 ## ghidra_report
 
 JSON with `program`, `language_id`, `compiler_spec_id`, `functions`, `imports`, `exports`, `strings`, `xrefs`, `call_graph`, `function_cfgs`, `graph_summaries`, and `analysis_warnings`. Graph fields are best-effort and may be empty with warnings outside a compatible Ghidra/PyGhidra runtime.

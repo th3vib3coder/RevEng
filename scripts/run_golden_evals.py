@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import shutil
 import subprocess
@@ -13,6 +14,8 @@ from typing import Any, Callable
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT_DIR = ROOT / "scripts"
+EVAL_SCHEMA = "reveng.golden_evals.v1"
+METRIC_KEYS = ("assertions", "false_positives", "false_negatives", "missing_evidence", "unsafe_actions")
 
 
 class EvalFailure(AssertionError):
@@ -22,6 +25,59 @@ class EvalFailure(AssertionError):
 def require(condition: bool, message: str) -> None:
     if not condition:
         raise EvalFailure(message)
+
+
+def missing_count(expected: set[str], actual: set[str]) -> int:
+    return len(expected - actual)
+
+
+def unexpected_count(rejected: set[str], actual: set[str]) -> int:
+    return len(rejected & actual)
+
+
+def metrics(
+    *,
+    assertions: int,
+    false_positives: int = 0,
+    false_negatives: int = 0,
+    missing_evidence: int = 0,
+    unsafe_actions: int = 0,
+) -> dict[str, int]:
+    return {
+        "assertions": assertions,
+        "false_positives": false_positives,
+        "false_negatives": false_negatives,
+        "missing_evidence": missing_evidence,
+        "unsafe_actions": unsafe_actions,
+    }
+
+
+def assert_clean_metrics(case_metrics: dict[str, int], case_name: str) -> None:
+    for key in ("false_positives", "false_negatives", "missing_evidence", "unsafe_actions"):
+        require(case_metrics.get(key, 0) == 0, f"{case_name} reported {key}={case_metrics.get(key)}")
+
+
+def eval_result(capability: str, details: dict[str, Any], case_metrics: dict[str, int]) -> dict[str, Any]:
+    assert_clean_metrics(case_metrics, capability)
+    return {"capability": capability, "metrics": case_metrics, "details": details}
+
+
+def merge_metrics(items: list[dict[str, int]]) -> dict[str, int]:
+    merged = {key: 0 for key in METRIC_KEYS}
+    for item in items:
+        for key in METRIC_KEYS:
+            merged[key] += int(item.get(key, 0))
+    return merged
+
+
+def load_script_module(script_name: str) -> Any:
+    spec = importlib.util.spec_from_file_location(script_name.removesuffix(".py"), SCRIPT_DIR / script_name)
+    if spec is None or spec.loader is None:
+        raise EvalFailure(f"cannot load script module: {script_name}")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
 
 
 def run_script(script: str, *args: str | Path) -> subprocess.CompletedProcess[str]:
@@ -226,18 +282,22 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     risks = {item["kind"] for item in repo_map["risks"]}
     graph_edges = {(item["from"], item["to"], item["import"]) for item in repo_map["module_graph"]["edges"]}
     graph_external = {(item["from"], item["import"]) for item in repo_map["module_graph"]["external_imports"]}
-    require({"requests>=2", "pydantic>=2", "express"}.issubset(deps), f"missing dependencies: {deps}")
-    require({"/items/{item_id}", "/health"}.issubset(routes), f"missing routes: {routes}")
-    require(not {"/commented", "/block-comment", "/string-literal"} & routes, f"comment/string JS routes leaked: {routes}")
-    require({"golden-cli", "test"}.issubset(entrypoints), f"missing entrypoints: {entrypoints}")
+    expected_deps = {"requests>=2", "pydantic>=2", "express"}
+    expected_routes = {"/items/{item_id}", "/health"}
+    rejected_routes = {"/commented", "/block-comment", "/string-literal"}
+    expected_entrypoints = {"golden-cli", "test"}
+    require(expected_deps.issubset(deps), f"missing dependencies: {deps}")
+    require(expected_routes.issubset(routes), f"missing routes: {routes}")
+    require(not rejected_routes & routes, f"comment/string JS routes leaked: {routes}")
+    require(expected_entrypoints.issubset(entrypoints), f"missing entrypoints: {entrypoints}")
     require({".codex-plugin/plugin.json", ".claude-plugin/plugin.json"}.issubset(plugin_paths), "plugin surfaces missing")
     require("secret_pattern" in risks, "secret-like risk not detected")
     require(("pkg.cli", "pkg.helpers", "pkg.helpers") in graph_edges, f"missing internal Python module edge: {graph_edges}")
     require(("pkg.cli", "requests") in graph_external, f"missing external Python import: {graph_external}")
-    metrics = repo_map["module_graph"]["metrics"]
-    require(metrics["fan_out"].get("pkg.cli", 0) >= 1, f"module graph fan_out missing: {metrics['fan_out']}")
-    require(metrics["fan_in"].get("pkg.helpers", 0) >= 1, f"module graph fan_in missing: {metrics['fan_in']}")
-    require(metrics["cycles"] == [], f"unexpected import cycle in acyclic fixture: {metrics['cycles']}")
+    module_metrics = repo_map["module_graph"]["metrics"]
+    require(module_metrics["fan_out"].get("pkg.cli", 0) >= 1, f"module graph fan_out missing: {module_metrics['fan_out']}")
+    require(module_metrics["fan_in"].get("pkg.helpers", 0) >= 1, f"module graph fan_in missing: {module_metrics['fan_in']}")
+    require(module_metrics["cycles"] == [], f"unexpected import cycle in acyclic fixture: {module_metrics['cycles']}")
     repo_graph = repo_map["graph"]
     repo_graph_nodes = {item["id"] for item in repo_graph["nodes"]}
     repo_graph_edges = {item["id"] for item in repo_graph["edges"]}
@@ -330,17 +390,51 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     finally:
         mcp.close()
 
-    return {
-        "inventory_files": inventory["file_count"],
-        "dependencies": sorted(deps),
-        "routes": sorted(routes),
-        "module_edges": len(graph_edges),
-        "repo_graph_nodes": len(repo_graph_nodes),
-        "repo_graph_edges": len(repo_graph_edges),
-        "case_id": case_manifest["case_id"],
-        "mcp_tools_checked": True,
-        "corpus_records": len(corpus),
+    required_graph_nodes = {
+        "file:pkg/cli.py",
+        "module:pkg.cli",
+        "symbol:pkg/cli.py#main",
+        "route:GET:/items/{item_id}",
     }
+    required_graph_edges = {
+        "edge:module_imports_module:module:pkg.cli->module:pkg.helpers",
+        "edge:file_defines_symbol:file:pkg/cli.py->symbol:pkg/cli.py#main",
+        "edge:route_bound_to_symbol:route:GET:/items/{item_id}->symbol:pkg/cli.py#read_item",
+    }
+    missing_evidence = missing_count({"file:pkg/cli.py", "module:pkg.cli", "symbol:pkg/cli.py#main"}, set(graph_refs["nodes"]))
+    missing_evidence += missing_count(
+        {"edge:file_defines_symbol:file:pkg/cli.py->symbol:pkg/cli.py#main"},
+        set(graph_refs["edges"]),
+    )
+    repo_metrics = metrics(
+        assertions=48,
+        false_positives=unexpected_count(rejected_routes, routes),
+        false_negatives=(
+            missing_count(expected_deps, deps)
+            + missing_count(expected_routes, routes)
+            + missing_count(expected_entrypoints, entrypoints)
+            + missing_count(required_graph_nodes, repo_graph_nodes)
+            + missing_count(required_graph_edges, repo_graph_edges)
+        ),
+        missing_evidence=missing_evidence,
+        unsafe_actions=0 if case_manifest["safety"]["executed_target_code"] is False else 1,
+    )
+
+    return eval_result(
+        "source repository graph/corpus/MCP analysis",
+        {
+            "inventory_files": inventory["file_count"],
+            "dependencies": sorted(deps),
+            "routes": sorted(routes),
+            "module_edges": len(graph_edges),
+            "repo_graph_nodes": len(repo_graph_nodes),
+            "repo_graph_edges": len(repo_graph_edges),
+            "case_id": case_manifest["case_id"],
+            "mcp_tools_checked": True,
+            "corpus_records": len(corpus),
+        },
+        repo_metrics,
+    )
 
 
 def eval_binary_triage(workdir: Path) -> dict[str, Any]:
@@ -357,7 +451,17 @@ def eval_binary_triage(workdir: Path) -> dict[str, Any]:
     require(triage["bytes_analyzed"] == 1024, "bounded bytes_analyzed not honored")
     require(triage["hashes"]["sha256"] == hashlib.sha256(payload).hexdigest(), "streamed sha256 mismatch")
     require(any("Only the first" in item for item in triage["limitations"]), "truncation limitation missing")
-    return {"size_bytes": triage["size_bytes"], "bytes_analyzed": triage["bytes_analyzed"]}
+    binary_metrics = metrics(
+        assertions=5,
+        false_negatives=0 if triage["file_type"] == "PE/DOS MZ" else 1,
+        missing_evidence=0 if triage["hashes"]["sha256"] else 1,
+        unsafe_actions=0,
+    )
+    return eval_result(
+        "bounded binary triage",
+        {"size_bytes": triage["size_bytes"], "bytes_analyzed": triage["bytes_analyzed"]},
+        binary_metrics,
+    )
 
 
 def eval_ioc_extraction(workdir: Path) -> dict[str, Any]:
@@ -383,7 +487,14 @@ def eval_ioc_extraction(workdir: Path) -> dict[str, Any]:
     require("https://bad.example/path?q=1" in network_values, "normalized URL missing")
     require(version_ips and version_ips[0]["confidence"] == "contextual", "version-like IPv4 not contextual")
     require("http://too-late.example/path" not in network_values, "overlong-line suffix was scanned past cap")
-    return {"network_items": len(network), "truncated": iocs["truncated"]}
+    ioc_metrics = metrics(
+        assertions=5,
+        false_positives=1 if "http://too-late.example/path" in network_values else 0,
+        false_negatives=missing_count({"hxxps://Bad[.]Example/path?q=1", "https://bad.example/path?q=1"}, network_values),
+        missing_evidence=0 if all(item.get("evidence_snippet") for item in network) else 1,
+        unsafe_actions=0,
+    )
+    return eval_result("IOC extraction adversarial strings", {"network_items": len(network), "truncated": iocs["truncated"]}, ioc_metrics)
 
 
 def eval_android_scan(workdir: Path) -> dict[str, Any]:
@@ -408,7 +519,160 @@ def eval_android_scan(workdir: Path) -> dict[str, Any]:
     require("https://api.golden.example/v1/ping" in endpoint_paths, "OkHttp endpoint missing")
     require("Huge.kt" in android["skipped_files"], "oversized Android file not skipped")
     require(android["auth_headers"], "auth header evidence missing")
-    return {"endpoints": len(android["endpoints"]), "skipped_files": android["skipped_files"]}
+    android_metrics = metrics(
+        assertions=4,
+        false_positives=1 if "https://skip.example" in endpoint_paths else 0,
+        false_negatives=missing_count({"v1/users/{id}", "https://api.golden.example/v1/ping"}, endpoint_paths),
+        missing_evidence=0 if android["auth_headers"] else 1,
+        unsafe_actions=0,
+    )
+    return eval_result(
+        "Android static API scan",
+        {"endpoints": len(android["endpoints"]), "skipped_files": android["skipped_files"]},
+        android_metrics,
+    )
+
+
+class FakeAddress:
+    def __init__(self, value: str) -> None:
+        self.value = value
+
+    def __str__(self) -> str:
+        return self.value
+
+
+class FakeBlock:
+    def __init__(self, start: str, successors: list[str]) -> None:
+        self.start = FakeAddress(start)
+        self.successors = [FakeAddress(item) for item in successors]
+
+    def getFirstStartAddress(self) -> FakeAddress:
+        return self.start
+
+    def getDestinations(self, _monitor: object | None = None) -> list[FakeAddress]:
+        return self.successors
+
+
+class FakeFunction:
+    def __init__(self, name: str, entry: str, calls: list["FakeFunction"] | None = None, blocks: list[FakeBlock] | None = None) -> None:
+        self.name = name
+        self.entry = FakeAddress(entry)
+        self.calls = calls or []
+        self.blocks = blocks or []
+
+    def getName(self) -> str:
+        return self.name
+
+    def getEntryPoint(self) -> FakeAddress:
+        return self.entry
+
+    def getCalledFunctions(self, _monitor: object | None = None) -> list["FakeFunction"]:
+        return self.calls
+
+    def getBasicBlocks(self) -> list[FakeBlock]:
+        return self.blocks
+
+
+class FakeListing:
+    def __init__(self, functions: list[FakeFunction]) -> None:
+        self.functions = functions
+
+    def getFunctions(self, _forward: bool) -> list[FakeFunction]:
+        return self.functions
+
+
+class FakeCompilerSpec:
+    def getCompilerSpecID(self) -> str:
+        return "gcc"
+
+
+class FakeGhidraProgram:
+    def __init__(self, functions: list[FakeFunction]) -> None:
+        self.functions = functions
+
+    def getName(self) -> str:
+        return "fake.bin"
+
+    def getLanguageID(self) -> str:
+        return "x86:LE:64:default"
+
+    def getCompilerSpec(self) -> FakeCompilerSpec:
+        return FakeCompilerSpec()
+
+    def getListing(self) -> FakeListing:
+        return FakeListing(self.functions)
+
+    def getSymbolTable(self) -> None:
+        return None
+
+
+def eval_ghidra_fake_graph_export(workdir: Path) -> dict[str, Any]:
+    ghidra = load_script_module("ghidra_export_summary.py")
+    helper = FakeFunction("helper", "0x2000")
+    entry = FakeFunction(
+        "entry",
+        "0x1000",
+        calls=[helper],
+        blocks=[
+            FakeBlock("0x1000", ["0x1010", "0x1020"]),
+            FakeBlock("0x1010", ["0x1030"]),
+            FakeBlock("0x1020", ["0x1030"]),
+            FakeBlock("0x1030", []),
+        ],
+    )
+
+    payload = ghidra.collect_summary(FakeGhidraProgram([entry, helper]))
+    out = workdir / "ghidra_summary.json"
+    out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+
+    call_edges = {(item["from"], item["to"]) for item in payload["call_graph"]["edges"]}
+    cfg_edges = {(item["from"], item["to"]) for item in payload["function_cfgs"][0]["edges"]}
+    require(("entry", "helper") in call_edges, f"fake Ghidra call edge missing: {call_edges}")
+    require(("0x1000", "0x1010") in cfg_edges, f"fake Ghidra CFG edge missing: {cfg_edges}")
+    require(payload["graph_summaries"], "fake Ghidra graph summaries missing")
+    require(any("xrefs unavailable" in item for item in payload["analysis_warnings"]), "xrefs warning missing")
+
+    ghidra_metrics = metrics(
+        assertions=4,
+        false_negatives=missing_count({"entry->helper"}, {f"{source}->{target}" for source, target in call_edges}),
+        missing_evidence=0 if payload["graph_summaries"] else 1,
+        unsafe_actions=0,
+    )
+    return eval_result(
+        "Ghidra fake graph export",
+        {
+            "functions": len(payload["functions"]),
+            "call_edges": len(payload["call_graph"]["edges"]),
+            "cfgs": len(payload["function_cfgs"]),
+            "artifact": str(out),
+        },
+        ghidra_metrics,
+    )
+
+
+def eval_safety_prompt_contract(workdir: Path) -> dict[str, Any]:
+    files = [
+        ROOT / "skills" / "repo-reverse-engineering" / "SKILL.md",
+        ROOT / "skills" / "binary-triage" / "SKILL.md",
+        ROOT / "references" / "report-templates.md",
+        ROOT / "references" / "external-adapter-schema.md",
+    ]
+    combined = "\n".join(path.read_text(encoding="utf-8") for path in files)
+    required_terms = {"PAUSE", "static-first", "Negative Evidence", "Alternate Hypotheses", "raw_eval"}
+    present = {term for term in required_terms if term in combined}
+    require(required_terms.issubset(present), f"safety/reporting terms missing: {required_terms - present}")
+
+    prompt_metrics = metrics(
+        assertions=len(required_terms),
+        false_negatives=missing_count(required_terms, present),
+        missing_evidence=0,
+        unsafe_actions=0,
+    )
+    return eval_result(
+        "OCP safety and reporting prompt contract",
+        {"checked_files": [str(path.relative_to(ROOT)) for path in files], "required_terms": sorted(required_terms)},
+        prompt_metrics,
+    )
 
 
 def run_cases(workdir: Path) -> tuple[list[dict[str, Any]], int]:
@@ -417,6 +681,8 @@ def run_cases(workdir: Path) -> tuple[list[dict[str, Any]], int]:
         ("binary_triage", eval_binary_triage),
         ("ioc_extraction", eval_ioc_extraction),
         ("android_scan", eval_android_scan),
+        ("ghidra_fake_graph_export", eval_ghidra_fake_graph_export),
+        ("ocp_safety_prompt_contract", eval_safety_prompt_contract),
     ]
     results: list[dict[str, Any]] = []
     failures = 0
@@ -424,11 +690,27 @@ def run_cases(workdir: Path) -> tuple[list[dict[str, Any]], int]:
         case_dir = workdir / name
         case_dir.mkdir(parents=True, exist_ok=True)
         try:
-            details = case(case_dir)
-            results.append({"name": name, "status": "passed", "details": details})
+            payload = case(case_dir)
+            results.append(
+                {
+                    "name": name,
+                    "status": "passed",
+                    "capability": payload["capability"],
+                    "metrics": payload["metrics"],
+                    "details": payload["details"],
+                }
+            )
         except Exception as exc:
             failures += 1
-            results.append({"name": name, "status": "failed", "error": str(exc)})
+            results.append(
+                {
+                    "name": name,
+                    "status": "failed",
+                    "capability": name,
+                    "metrics": metrics(assertions=0, false_negatives=1),
+                    "error": str(exc),
+                }
+            )
     return results, failures
 
 
@@ -448,11 +730,14 @@ def main() -> int:
         workdir = Path(tempfile.mkdtemp(prefix="reveng-golden-"))
 
     results, failures = run_cases(workdir)
+    summary_metrics = merge_metrics([item["metrics"] for item in results])
     summary = {
+        "schema": EVAL_SCHEMA,
         "status": "failed" if failures else "passed",
         "workdir": str(workdir),
         "passed": sum(1 for item in results if item["status"] == "passed"),
         "failed": failures,
+        "metrics": summary_metrics,
         "cases": results,
     }
 

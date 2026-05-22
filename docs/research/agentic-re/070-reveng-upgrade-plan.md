@@ -156,36 +156,31 @@ Acceptance:
 
 ## Phase 6: Evaluation Upgrade
 
-Status: partially implemented.
+Status: implemented for zero-dependency labeled mini-benchmarks.
 
 Implemented:
 
 - `scripts/run_golden_evals.py` runs end-to-end golden checks for repository analysis, binary triage, IOC extraction, Android API scanning, case manifests, corpus MCP search/get/error handling, and module graph MCP metrics.
 - CI runs pytest, byte-compilation, golden evaluations, and manifest sync checks on Linux and Windows.
-
-Remaining:
-
-Tasks:
-
-- Expand `evals/` into labeled mini-benchmarks:
-  - source graph
-  - MCP pagination
+- Expanded eval cases into labeled mini-benchmarks:
+  - source graph/corpus/MCP analysis
+  - bounded binary triage
   - IOC adversarial strings
   - Android oversized source
   - Ghidra fake graph export
-  - OCP failure-mode prompts
-- Score:
-  - pass/fail
+  - OCP safety/reporting prompt contract
+- Every case reports `capability`, `status`, and metrics for:
+  - assertions
   - false positives
   - false negatives
   - missing evidence
   - unsafe action attempted
-- Add JSON eval output for CI artifacts.
+- CI writes `evals/golden-summary.json` with schema `reveng.golden_evals.v1`.
 
 Tests:
 
-- `run_golden_evals.py` emits both human markdown and JSON summary.
-- CI fails on unsafe action or missing citation.
+- `run_golden_evals.py` emits schema-versioned JSON to stdout and `--json-out`.
+- CI fails on unsafe action, missing evidence, false positives, false negatives, or missing citation checks represented by non-zero metrics.
 
 Acceptance:
 
@@ -241,13 +236,14 @@ Current status:
 3. Phase 3 is implemented for current read-only corpus/graph MCP tools.
 4. Phase 4 is implemented for discovery-only external adapter inventory.
 5. Phase 5 is implemented with fake Ghidra graph fixtures; real smoke test requires a local Ghidra/PyGhidra install.
-6. Phase 7 is implemented as shared report templates.
+6. Phase 6 is implemented for labeled zero-dependency mini-benchmarks.
+7. Phase 7 is implemented as shared report templates.
 
 Next implementation targets:
 
-1. Labeled eval fixtures for graph precision and unsafe-action detection.
-2. Optional CLI wrapper.
-3. Real Ghidra/PyGhidra smoke test when an installation is available.
+1. Optional CLI wrapper.
+2. Real Ghidra/PyGhidra smoke test when an installation is available.
+3. Optional external parser support (for example JS/TS AST) only if zero-dependency is relaxed.
 
 Reason:
 

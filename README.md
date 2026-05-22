@@ -312,6 +312,12 @@ Run end-to-end golden evaluations:
 python3 scripts/run_golden_evals.py
 ```
 
+Emit the CI-readable evaluation summary:
+
+```bash
+python3 scripts/run_golden_evals.py --json-out evals/golden-summary.json
+```
+
 Validate the Codex plugin manifest:
 
 ```bash
@@ -326,9 +332,9 @@ The test suite covers:
 - binary triage
 - IOC extraction
 - Android API scan
-- Ghidra wrapper behavior outside Ghidra
+- Ghidra wrapper behavior outside Ghidra and fake-object graph export
 - absence of local absolute paths in shipped files
-- golden end-to-end workflow invariants for repository analysis, binary triage, IOC extraction, and Android API scanning
+- golden end-to-end workflow invariants with labeled FP/FN/missing-evidence/unsafe-action metrics
 - stdio MCP corpus tool discovery, paginated query behavior, split text/structured responses, and tool-visible schema errors
 
 ## Limitations
