@@ -197,6 +197,51 @@ def test_repo_map_builds_internal_python_module_graph(tmp_path: Path) -> None:
     assert not any(edge[2] == "requests" for edge in edges)
 
 
+def test_repo_map_resolves_python_src_layout_import_names(tmp_path: Path) -> None:
+    repo = tmp_path / "src-layout-repo"
+    (repo / "src" / "re_agent" / "backend").mkdir(parents=True)
+    (repo / "src" / "re_agent" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "src" / "re_agent" / "backend" / "__init__.py").write_text("", encoding="utf-8")
+    (repo / "pyproject.toml").write_text(
+        """
+[project]
+name = "src-layout-fixture"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+""".strip()
+        + "\n",
+        encoding="utf-8",
+    )
+    (repo / "src" / "re_agent" / "backend" / "protocol.py").write_text(
+        "class BackendProtocol:\n    pass\n",
+        encoding="utf-8",
+    )
+    (repo / "src" / "re_agent" / "backend" / "registry.py").write_text(
+        "from re_agent.backend.protocol import BackendProtocol\n\nREGISTRY = {}\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "repo_map.json"
+
+    run_script("repo_map.py", str(repo), "--json-out", str(out))
+
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    graph = payload["module_graph"]
+    modules = {item["module"]: item["path"] for item in graph["modules"]}
+    edges = {(item["from"], item["to"], item["import"]) for item in graph["edges"]}
+    external_imports = {(item["from"], item["import"]) for item in graph["external_imports"]}
+
+    assert "re_agent.backend.registry" in modules
+    assert "src.re_agent.backend.registry" not in modules
+    assert modules["re_agent.backend.registry"] == "src/re_agent/backend/registry.py"
+    assert (
+        "re_agent.backend.registry",
+        "re_agent.backend.protocol",
+        "re_agent.backend.protocol",
+    ) in edges
+    assert ("re_agent.backend.registry", "re_agent.backend.protocol") not in external_imports
+
+
 def test_repo_map_builds_internal_javascript_module_graph(tmp_path: Path) -> None:
     repo = make_fixture(tmp_path)
     out = tmp_path / "repo_map.json"

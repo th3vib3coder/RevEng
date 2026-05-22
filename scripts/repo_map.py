@@ -98,6 +98,50 @@ def parse_pyproject(path: Path, rel: str) -> tuple[list[dict[str, Any]], list[di
     return entrypoints, deps
 
 
+def pyproject_declares_source_root(root: Path, source_name: str) -> bool:
+    pyproject = root / "pyproject.toml"
+    if not pyproject.is_file():
+        return False
+    text = read_text(pyproject)
+    try:
+        data = tomllib.loads(text) if tomllib is not None else parse_pyproject_fallback(text)
+    except Exception:
+        data = {}
+    tool = data.get("tool", {}) if isinstance(data, dict) else {}
+    setuptools = tool.get("setuptools", {}) if isinstance(tool, dict) else {}
+    package_dir = setuptools.get("package-dir", {}) if isinstance(setuptools, dict) else {}
+    if isinstance(package_dir, dict) and package_dir.get("") == source_name:
+        return True
+    packages = setuptools.get("packages", {}) if isinstance(setuptools, dict) else {}
+    find = packages.get("find", {}) if isinstance(packages, dict) else {}
+    where = find.get("where", []) if isinstance(find, dict) else []
+    if isinstance(where, str):
+        where = [where]
+    if isinstance(where, list) and source_name in where:
+        return True
+    hatch = tool.get("hatch", {}) if isinstance(tool, dict) else {}
+    build = hatch.get("build", {}) if isinstance(hatch, dict) else {}
+    targets = build.get("targets", {}) if isinstance(build, dict) else {}
+    wheel = targets.get("wheel", {}) if isinstance(targets, dict) else {}
+    packages_value = wheel.get("packages", []) if isinstance(wheel, dict) else []
+    if isinstance(packages_value, str):
+        packages_value = [packages_value]
+    if isinstance(packages_value, list) and any(str(item).replace("\\", "/").startswith(f"{source_name}/") for item in packages_value):
+        return True
+    normalized = text.replace("'", '"')
+    return f'where = ["{source_name}"]' in normalized or f'"" = "{source_name}"' in normalized
+
+
+def detect_python_source_roots(root: Path) -> list[Path]:
+    roots: list[Path] = []
+    src = root / "src"
+    has_src_package = src.is_dir() and any(child.is_dir() and (child / "__init__.py").is_file() for child in src.iterdir())
+    if src.is_dir() and (pyproject_declares_source_root(root, "src") or has_src_package):
+        roots.append(src)
+    roots.append(root)
+    return roots
+
+
 def parse_package_json(path: Path, rel: str) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
     data = load_json(path)
     entrypoints: list[dict[str, Any]] = []
@@ -312,8 +356,16 @@ def extract_javascript_imports(text: str) -> list[str]:
     return sorted(imports)
 
 
-def python_module_name(root: Path, path: Path) -> str:
-    rel = path.relative_to(root)
+def python_module_name(root: Path, path: Path, source_roots: list[Path] | None = None) -> str:
+    rel = None
+    for source_root in source_roots or [root]:
+        try:
+            rel = path.relative_to(source_root)
+            break
+        except ValueError:
+            continue
+    if rel is None:
+        rel = path.relative_to(root)
     parts = list(rel.with_suffix("").parts)
     if parts[-1] == "__init__":
         parts = parts[:-1]
@@ -730,13 +782,14 @@ def build_map(root: Path) -> dict[str, Any]:
     source_imports: dict[str, list[str]] = {}
     files: dict[str, dict[str, Any]] = {}
     symbols_by_path: dict[str, list[str]] = {}
+    python_source_roots = detect_python_source_roots(root)
 
     for path in iter_repo_files(root):
         rel = repo_relative(root, path)
         kind = classify_kind(root, path)
         files[rel] = {"kind": kind, "language": detect_language(path)}
         if path.suffix.lower() in SOURCE_MODULE_SUFFIXES:
-            module = python_module_name(root, path) if path.suffix.lower() in PYTHON_SUFFIXES else source_module_name(root, path)
+            module = python_module_name(root, path, python_source_roots) if path.suffix.lower() in PYTHON_SUFFIXES else source_module_name(root, path)
             if module:
                 source_modules[module] = {"path": rel, "language": detect_language(path)}
         if path.name == "pyproject.toml":
@@ -757,7 +810,7 @@ def build_map(root: Path) -> dict[str, Any]:
             text = read_text(path)
             definitions = python_definitions(text) if path.suffix.lower() in PYTHON_SUFFIXES else None
             if definitions is not None:
-                module = python_module_name(root, path)
+                module = python_module_name(root, path, python_source_roots)
                 if module:
                     source_imports[module] = definitions["imports"]
                 if definitions["symbols"]:

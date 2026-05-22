@@ -42,6 +42,7 @@ Implemented:
 
 - `repo_map.py` emits a source `module_graph` with stable modules, internal import `edges`, unresolved/external imports, and graph-specific limitations.
 - Python source analysis uses AST for imports, symbols, classes, functions, async functions, and route decorators when parseable.
+- Python module naming handles common `src/` layouts declared in `pyproject.toml` or indicated by package markers, so imports such as `re_agent.*` resolve to `src/re_agent/*`.
 - `module_graph` also includes JavaScript/TypeScript modules and resolves relative imports using a zero-dependency comment-aware static scanner.
 - `module_graph.metrics` includes per-module `fan_in`, `fan_out`, and import `cycles`.
 - Cycle detection uses iterative Tarjan/SCC logic to avoid recursion-limit failures on deep graphs.

@@ -70,7 +70,7 @@ It maps:
 - directory structure and major modules
 - entrypoints and main flows
 - package manifests and dependency surfaces
-- source module graph from Python imports and JavaScript/TypeScript relative imports
+- source module graph from Python imports (including common `src/` layouts) and JavaScript/TypeScript relative imports
 - API, CLI, MCP, plugin, and service surfaces
 - CI, Docker, config, and test/build strategy
 - static supply-chain and execution-risk signals
