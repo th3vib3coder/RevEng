@@ -40,8 +40,9 @@ Status: implemented for zero-dependency source-repo analysis.
 
 Implemented:
 
-- `repo_map.py` emits a Python `module_graph` with stable modules, internal import `edges`, unresolved/external imports, and graph-specific limitations.
+- `repo_map.py` emits a source `module_graph` with stable modules, internal import `edges`, unresolved/external imports, and graph-specific limitations.
 - Python source analysis uses AST for imports, symbols, classes, functions, async functions, and route decorators when parseable.
+- `module_graph` also includes JavaScript/TypeScript modules and resolves relative imports using a zero-dependency comment-aware static scanner.
 - `module_graph.metrics` includes per-module `fan_in`, `fan_out`, and import `cycles`.
 - Cycle detection uses iterative Tarjan/SCC logic to avoid recursion-limit failures on deep graphs.
 - `repo_corpus_mcp.py` exposes `reveng.module_graph` with internal edges, external imports, hard-capped graph metrics, cursor pagination, and `truncated`.
@@ -243,7 +244,7 @@ Next implementation targets:
 
 1. Optional CLI wrapper.
 2. Real Ghidra/PyGhidra smoke test when an installation is available.
-3. Optional external parser support (for example JS/TS AST) only if zero-dependency is relaxed.
+3. Optional full external parser support (for example tree-sitter JS/TS AST) only if zero-dependency is relaxed.
 
 Reason:
 

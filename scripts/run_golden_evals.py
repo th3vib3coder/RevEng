@@ -206,6 +206,7 @@ def format_value(value: str) -> str:
     write_text(
         repo / "src" / "server.js",
         """
+import { health } from "./util.js";
 const express = require("express");
 const app = express();
 // app.get("/commented", (req, res) => res.send("no"));
@@ -215,6 +216,15 @@ router.post("/block-comment", handler);
 const fake = "router.delete('/string-literal', handler)";
 app.get("/health", (req, res) => res.send("ok"));
 module.exports = app;
+""".lstrip(),
+    )
+    write_text(
+        repo / "src" / "util.js",
+        """
+// import ignored from "./comment-only.js";
+export function health() {
+  return "ok";
+}
 """.lstrip(),
     )
     write_text(repo / ".codex-plugin" / "plugin.json", '{"name":"golden"}\n')
@@ -293,7 +303,10 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     require({".codex-plugin/plugin.json", ".claude-plugin/plugin.json"}.issubset(plugin_paths), "plugin surfaces missing")
     require("secret_pattern" in risks, "secret-like risk not detected")
     require(("pkg.cli", "pkg.helpers", "pkg.helpers") in graph_edges, f"missing internal Python module edge: {graph_edges}")
+    require(("src.server", "src.util", "./util.js") in graph_edges, f"missing internal JavaScript module edge: {graph_edges}")
     require(("pkg.cli", "requests") in graph_external, f"missing external Python import: {graph_external}")
+    require(("src.server", "express") in graph_external, f"missing external JavaScript import: {graph_external}")
+    require(("src.util", "./comment-only.js") not in graph_external, f"comment-only JavaScript import leaked: {graph_external}")
     module_metrics = repo_map["module_graph"]["metrics"]
     require(module_metrics["fan_out"].get("pkg.cli", 0) >= 1, f"module graph fan_out missing: {module_metrics['fan_out']}")
     require(module_metrics["fan_in"].get("pkg.helpers", 0) >= 1, f"module graph fan_in missing: {module_metrics['fan_in']}")
@@ -307,6 +320,7 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     require("symbol:pkg/cli.py#main" in repo_graph_nodes, "repo graph symbol node missing")
     require("route:GET:/items/{item_id}" in repo_graph_nodes, "repo graph FastAPI route node missing")
     require("edge:module_imports_module:module:pkg.cli->module:pkg.helpers" in repo_graph_edges, "repo graph module edge missing")
+    require("edge:module_imports_module:module:src.server->module:src.util" in repo_graph_edges, "repo graph JavaScript module edge missing")
     require("edge:file_defines_symbol:file:pkg/cli.py->symbol:pkg/cli.py#main" in repo_graph_edges, "repo graph symbol edge missing")
     require(
         "edge:route_bound_to_symbol:route:GET:/items/{item_id}->symbol:pkg/cli.py#read_item" in repo_graph_edges,
@@ -407,7 +421,7 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
         set(graph_refs["edges"]),
     )
     repo_metrics = metrics(
-        assertions=48,
+        assertions=53,
         false_positives=unexpected_count(rejected_routes, routes),
         false_negatives=(
             missing_count(expected_deps, deps)

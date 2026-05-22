@@ -96,6 +96,7 @@ def feature():
     )
     (repo / "src" / "server.js").write_text(
         """
+import { health } from "./util.js";
 const express = require("express");
 const app = express();
 // app.get("/commented", (req, res) => res.send("no"));
@@ -105,6 +106,18 @@ router.post("/block-comment", handler);
 const fake = "router.delete('/string-literal', handler)";
 app.get("/health", (req, res) => res.send("ok"));
 module.exports = app;
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (repo / "src" / "util.js").write_text(
+        """
+// import ignored from "./comment-only.js";
+const doc = `
+import hidden from "./template-only.js";
+`;
+export function health() {
+  return "ok";
+}
 """.lstrip(),
         encoding="utf-8",
     )
@@ -132,7 +145,7 @@ def test_repo_inventory_detects_languages_manifests_and_plugins(tmp_path: Path) 
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["file_count"] >= 8
     assert payload["languages"]["Python"]["files"] == 4
-    assert payload["languages"]["JavaScript"]["files"] == 1
+    assert payload["languages"]["JavaScript"]["files"] == 2
     manifest_paths = {item["path"] for item in payload["manifests"]}
     assert "pyproject.toml" in manifest_paths
     assert "package.json" in manifest_paths
@@ -182,6 +195,26 @@ def test_repo_map_builds_internal_python_module_graph(tmp_path: Path) -> None:
     assert ("pkg.feature", "pkg.helpers", ".helpers") in edges
     assert ("pkg.cli", "requests") in external_imports
     assert not any(edge[2] == "requests" for edge in edges)
+
+
+def test_repo_map_builds_internal_javascript_module_graph(tmp_path: Path) -> None:
+    repo = make_fixture(tmp_path)
+    out = tmp_path / "repo_map.json"
+
+    run_script("repo_map.py", str(repo), "--json-out", str(out))
+
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    graph = payload["module_graph"]
+    modules = {item["module"]: item for item in graph["modules"]}
+    edges = {(item["from"], item["to"], item["import"]) for item in graph["edges"]}
+    external_imports = {(item["from"], item["import"]) for item in graph["external_imports"]}
+
+    assert modules["src.server"]["language"] == "JavaScript"
+    assert modules["src.util"]["path"] == "src/util.js"
+    assert ("src.server", "src.util", "./util.js") in edges
+    assert ("src.server", "express") in external_imports
+    assert ("src.util", "./comment-only.js") not in external_imports
+    assert ("src.util", "./template-only.js") not in external_imports
 
 
 def test_repo_map_emits_general_repo_graph(tmp_path: Path) -> None:

@@ -32,6 +32,8 @@ SYMBOL_PATTERNS = [
 ]
 
 PYTHON_SUFFIXES = {".py", ".pyi"}
+JAVASCRIPT_SUFFIXES = {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"}
+SOURCE_MODULE_SUFFIXES = PYTHON_SUFFIXES | JAVASCRIPT_SUFFIXES
 
 
 def parse_toml_array_items(text: str) -> list[str]:
@@ -217,10 +219,111 @@ def extract_javascript_routes(text: str, rel: str) -> list[dict[str, Any]]:
     return routes
 
 
+def js_identifier_char(char: str) -> bool:
+    return char.isalnum() or char in {"_", "$"}
+
+
+def js_token_boundary(text: str, start: int, end: int) -> bool:
+    before = start == 0 or not js_identifier_char(text[start - 1])
+    after = end >= len(text) or not js_identifier_char(text[end])
+    return before and after
+
+
+def js_statement_end(text: str, start: int, max_chars: int = 1000) -> int:
+    i = start
+    limit = min(len(text), start + max_chars)
+    while i < limit:
+        if text.startswith("//", i):
+            newline = text.find("\n", i + 2)
+            return limit if newline == -1 else newline
+        if text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = limit if end == -1 else end + 2
+            continue
+        if text[i] in {"'", '"', "`"}:
+            i = skip_js_string(text, i)
+            continue
+        if text[i] == ";":
+            return i
+        i += 1
+    return limit
+
+
+def first_js_string_literal(text: str, start: int, end: int) -> str | None:
+    i = start
+    while i < end:
+        if text.startswith("//", i):
+            newline = text.find("\n", i + 2)
+            return None if newline == -1 or newline >= end else None
+        if text.startswith("/*", i):
+            block_end = text.find("*/", i + 2)
+            i = end if block_end == -1 else block_end + 2
+            continue
+        if text[i] in {"'", '"', "`"}:
+            parsed = parse_js_string_literal(text, i)
+            return parsed[0] if parsed is not None else None
+        i += 1
+    return None
+
+
+def extract_javascript_imports(text: str) -> list[str]:
+    imports: set[str] = set()
+    i = 0
+    while i < len(text):
+        if text.startswith("//", i):
+            newline = text.find("\n", i + 2)
+            i = len(text) if newline == -1 else newline + 1
+            continue
+        if text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = len(text) if end == -1 else end + 2
+            continue
+        if text[i] in {"'", '"', "`"}:
+            i = skip_js_string(text, i)
+            continue
+        if text.startswith("import", i) and js_token_boundary(text, i, i + 6):
+            end = js_statement_end(text, i)
+            value = first_js_string_literal(text, i + 6, end)
+            if value:
+                imports.add(value)
+            i = end + 1
+            continue
+        if text.startswith("export", i) and js_token_boundary(text, i, i + 6):
+            end = js_statement_end(text, i)
+            statement = text[i:end]
+            if re.search(r"\bfrom\b", statement):
+                value = first_js_string_literal(text, i + 6, end)
+                if value:
+                    imports.add(value)
+            i = end + 1
+            continue
+        if text.startswith("require", i) and js_token_boundary(text, i, i + 7):
+            j = i + 7
+            while j < len(text) and text[j].isspace():
+                j += 1
+            if j < len(text) and text[j] == "(":
+                end = js_statement_end(text, j)
+                value = first_js_string_literal(text, j + 1, end)
+                if value:
+                    imports.add(value)
+                i = end + 1
+                continue
+        i += 1
+    return sorted(imports)
+
+
 def python_module_name(root: Path, path: Path) -> str:
     rel = path.relative_to(root)
     parts = list(rel.with_suffix("").parts)
     if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def source_module_name(root: Path, path: Path) -> str:
+    rel = path.relative_to(root)
+    parts = list(rel.with_suffix("").parts)
+    if parts[-1] in {"__init__", "index"} and len(parts) > 1:
         parts = parts[:-1]
     return ".".join(parts)
 
@@ -244,23 +347,60 @@ def resolve_python_import(import_name: str, from_module: str, modules: set[str])
     return None
 
 
-def build_python_module_graph(
-    python_modules: dict[str, str],
-    python_imports: dict[str, list[str]],
+def resolve_javascript_import(import_name: str, from_path: str, path_to_module: dict[str, str]) -> str | None:
+    if not import_name.startswith("."):
+        return None
+    from_dir = Path(from_path).parent
+    target = (from_dir / import_name).as_posix()
+    candidates = [target]
+    if Path(target).suffix:
+        candidates.append(Path(target).with_suffix("").as_posix())
+    else:
+        candidates.extend(
+            [
+                f"{target}{suffix}"
+                for suffix in (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx")
+            ]
+        )
+        candidates.extend(
+            [
+                f"{target}/index{suffix}"
+                for suffix in (".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx")
+            ]
+        )
+    for candidate in candidates:
+        normalized = Path(candidate).as_posix()
+        if normalized in path_to_module:
+            return path_to_module[normalized]
+    return None
+
+
+def build_source_module_graph(
+    modules_by_name: dict[str, dict[str, str]],
+    imports_by_module: dict[str, list[str]],
 ) -> dict[str, Any]:
-    module_names = set(python_modules)
+    module_names = set(modules_by_name)
+    path_to_module = {metadata["path"]: module for module, metadata in modules_by_name.items()}
     edges: list[dict[str, str]] = []
     external_imports: list[dict[str, str]] = []
-    for from_module, imports in sorted(python_imports.items()):
+    for from_module, imports in sorted(imports_by_module.items()):
+        metadata = modules_by_name.get(from_module, {})
+        language = metadata.get("language", "")
+        from_path = metadata.get("path", "")
         for import_name in imports:
-            target = resolve_python_import(import_name, from_module, module_names)
+            if language == "Python":
+                target = resolve_python_import(import_name, from_module, module_names)
+            elif language in {"JavaScript", "TypeScript"}:
+                target = resolve_javascript_import(import_name, from_path, path_to_module)
+            else:
+                target = None
             if target and target != from_module:
                 edges.append(
                     {
                         "from": from_module,
-                        "from_path": python_modules[from_module],
+                        "from_path": from_path,
                         "to": target,
-                        "to_path": python_modules[target],
+                        "to_path": modules_by_name[target]["path"],
                         "import": import_name,
                     }
                 )
@@ -268,22 +408,22 @@ def build_python_module_graph(
                 external_imports.append(
                     {
                         "from": from_module,
-                        "from_path": python_modules[from_module],
+                        "from_path": from_path,
                         "import": import_name,
                     }
                 )
     return {
         "modules": [
-            {"module": module, "path": python_modules[module]}
-            for module in sorted(python_modules)
+            {"module": module, "path": modules_by_name[module]["path"], "language": modules_by_name[module]["language"]}
+            for module in sorted(modules_by_name)
             if module
         ],
         "edges": sorted(edges, key=lambda item: (item["from"], item["to"], item["import"])),
         "external_imports": sorted(external_imports, key=lambda item: (item["from"], item["import"])),
-        "metrics": module_graph_metrics([module for module in sorted(python_modules) if module], edges),
+        "metrics": module_graph_metrics([module for module in sorted(modules_by_name) if module], edges),
         "limitations": [
-            "Python module graph is static and import-derived; dynamic imports and runtime path mutation are not resolved.",
-            "JavaScript/TypeScript and other language graphs are not built in this zero-dependency implementation.",
+            "Source module graph is static and import-derived; dynamic imports and runtime path mutation are not resolved.",
+            "Python uses AST imports when parseable; JavaScript/TypeScript use a zero-dependency comment-aware static scanner, not a full parser.",
         ],
     }
 
@@ -558,8 +698,8 @@ def build_repo_graph(
         "metrics": graph_metrics(nodes, edges),
         "limitations": [
             "Repo graph is a static evidence graph; it does not imply runtime reachability or execution order.",
-            "Only Python import edges are resolved to internal modules in the zero-dependency implementation.",
-            "Non-Python symbols, routes, and imports remain regex-derived hints and require human confirmation.",
+            "Python imports and JavaScript/TypeScript relative imports are resolved to internal modules by static analysis.",
+            "Non-Python symbols, routes, and non-relative imports remain static hints and require human confirmation.",
         ],
     }
 
@@ -586,8 +726,8 @@ def build_map(root: Path) -> dict[str, Any]:
     configs: list[dict[str, Any]] = []
     imports: list[dict[str, Any]] = []
     risks: list[dict[str, Any]] = []
-    python_modules: dict[str, str] = {}
-    python_imports: dict[str, list[str]] = {}
+    source_modules: dict[str, dict[str, str]] = {}
+    source_imports: dict[str, list[str]] = {}
     files: dict[str, dict[str, Any]] = {}
     symbols_by_path: dict[str, list[str]] = {}
 
@@ -595,10 +735,10 @@ def build_map(root: Path) -> dict[str, Any]:
         rel = repo_relative(root, path)
         kind = classify_kind(root, path)
         files[rel] = {"kind": kind, "language": detect_language(path)}
-        if path.suffix.lower() in PYTHON_SUFFIXES:
-            module = python_module_name(root, path)
+        if path.suffix.lower() in SOURCE_MODULE_SUFFIXES:
+            module = python_module_name(root, path) if path.suffix.lower() in PYTHON_SUFFIXES else source_module_name(root, path)
             if module:
-                python_modules[module] = rel
+                source_modules[module] = {"path": rel, "language": detect_language(path)}
         if path.name == "pyproject.toml":
             eps, deps = parse_pyproject(path, rel)
             entrypoints.extend(eps)
@@ -613,13 +753,13 @@ def build_map(root: Path) -> dict[str, Any]:
         if kind == "config":
             configs.append({"path": rel, "kind": "config"})
 
-        if path.suffix.lower() in {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
+        if path.suffix.lower() in SOURCE_MODULE_SUFFIXES:
             text = read_text(path)
             definitions = python_definitions(text) if path.suffix.lower() in PYTHON_SUFFIXES else None
             if definitions is not None:
                 module = python_module_name(root, path)
                 if module:
-                    python_imports[module] = definitions["imports"]
+                    source_imports[module] = definitions["imports"]
                 if definitions["symbols"]:
                     symbols_by_path[rel] = definitions["symbols"]
                 if definitions["imports"]:
@@ -633,7 +773,10 @@ def build_map(root: Path) -> dict[str, Any]:
                 file_symbols = extract_symbols(text)
                 if file_symbols:
                     symbols_by_path[rel] = file_symbols
-                file_imports = extract_imports(text)
+                file_imports = extract_javascript_imports(text) if path.suffix.lower() in JAVASCRIPT_SUFFIXES else extract_imports(text)
+                module = source_module_name(root, path) if path.suffix.lower() in JAVASCRIPT_SUFFIXES else ""
+                if module:
+                    source_imports[module] = file_imports
                 if file_imports:
                     imports.append({"path": rel, "imports": file_imports})
                 routes.extend(extract_routes(text, rel))
@@ -641,7 +784,7 @@ def build_map(root: Path) -> dict[str, Any]:
         elif kind in {"manifest", "plugin_manifest", "config"}:
             risks.extend(static_risks(root, rel, read_text(path), kind))
 
-    module_graph = build_python_module_graph(python_modules, python_imports)
+    module_graph = build_source_module_graph(source_modules, source_imports)
     return {
         "root": str(root),
         "entrypoints": sorted(entrypoints, key=lambda item: (item["source"], item["kind"], item["name"])),
@@ -663,7 +806,7 @@ def build_map(root: Path) -> dict[str, Any]:
         "risks": sorted(risks, key=lambda item: (item["source"], item["kind"])),
         "limitations": [
             "Static analysis only; repository code, tests, package managers, containers, and build scripts were not executed.",
-            "Python routes/imports use AST when parseable; non-Python routes/imports and invalid Python fallback to regex candidates and require human confirmation for complex frameworks.",
+            "Python routes/imports use AST when parseable; JavaScript/TypeScript relative imports use a comment-aware static scanner; invalid Python and non-JS languages fallback to regex candidates and require human confirmation for complex frameworks.",
         ],
     }
 

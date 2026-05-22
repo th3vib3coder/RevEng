@@ -70,7 +70,7 @@ It maps:
 - directory structure and major modules
 - entrypoints and main flows
 - package manifests and dependency surfaces
-- Python internal module graph from static imports
+- source module graph from Python imports and JavaScript/TypeScript relative imports
 - API, CLI, MCP, plugin, and service surfaces
 - CI, Docker, config, and test/build strategy
 - static supply-chain and execution-risk signals
@@ -276,7 +276,7 @@ Important outputs:
 
 - `case_manifest.json`: deterministic case index with analyzed target hash, artifact hashes, caps, helper-script hashes, ignored directories, warnings, and static-first safety posture.
 - `repo_inventory.json`: repository file inventory, language counts, manifest list, hashes.
-- `repo_map.json`: entrypoints, dependencies, routes, plugin surfaces, configs, imports, Python module graph, general evidence graph, risks, limitations.
+- `repo_map.json`: entrypoints, dependencies, routes, plugin surfaces, configs, imports, source module graph, general evidence graph, risks, limitations.
 - `repo_corpus.jsonl`: one JSON record per included file with path, kind, language, SHA256, summary, symbols, imports, evidence excerpts, and optional `graph_refs`.
 - `repo_corpus_mcp.py`: read-only stdio MCP server for querying `repo_corpus.jsonl`.
 - `sample.triage.json`: binary hash/type/entropy/strings/tool-output report.
