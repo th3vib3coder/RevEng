@@ -106,3 +106,9 @@ def test_unpacking_skill_states_static_first_tree_and_upx() -> None:
 def test_ioc_skill_requires_evidence_snippet() -> None:
     text = (ROOT / "skills" / "ioc-extraction" / "SKILL.md").read_text(encoding="utf-8")
     assert "evidence_snippet" in text
+
+
+def test_ci_uses_explicit_windows_runner() -> None:
+    text = (ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    assert "windows-latest" not in text
+    assert "windows-2025-vs2026" in text
