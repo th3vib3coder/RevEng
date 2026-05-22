@@ -113,10 +113,20 @@ def is_ignored_dir(name: str) -> bool:
 
 
 def iter_repo_files(root: Path) -> Iterable[Path]:
-    for current, dirs, files in os.walk(root):
-        dirs[:] = sorted(d for d in dirs if not is_ignored_dir(d))
+    # followlinks=False prevents symlinked-directory recursion loops; symlinked
+    # files are skipped so the scanner never reads content outside the analyzed
+    # repository (defense against symlink-based path traversal / info disclosure).
+    for current, dirs, files in os.walk(root, followlinks=False):
+        dirs[:] = sorted(
+            d
+            for d in dirs
+            if not is_ignored_dir(d) and not os.path.islink(os.path.join(current, d))
+        )
         for filename in sorted(files):
-            yield Path(current) / filename
+            path = Path(current) / filename
+            if path.is_symlink():
+                continue
+            yield path
 
 
 def sha256_file(path: Path) -> str:

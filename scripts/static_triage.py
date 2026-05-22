@@ -10,6 +10,16 @@ from pathlib import Path
 from typing import Any
 
 
+DEFAULT_MAX_READ_BYTES = 64 * 1024 * 1024
+
+
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
+
+
 def hash_file(path: Path, algorithm: str) -> str:
     digest = hashlib.new(algorithm)
     with path.open("rb") as handle:
@@ -73,16 +83,25 @@ def run_optional_tool(command: list[str], timeout_s: int = 10) -> dict[str, Any]
         return {"available": True, "error": str(exc), "stdout": "", "stderr": ""}
 
 
-def triage(path: Path) -> dict[str, Any]:
+def triage(path: Path, max_read_bytes: int = DEFAULT_MAX_READ_BYTES) -> dict[str, Any]:
     path = path.resolve()
     if not path.is_file():
         raise SystemExit(f"not a file: {path}")
-    data = path.read_bytes()
+    size_bytes = path.stat().st_size
+    with path.open("rb") as handle:
+        data = handle.read(max_read_bytes)
+    bytes_analyzed = len(data)
     chunk_size = 4096
     chunks = [
         {"offset": offset, "entropy": round(entropy(data[offset : offset + chunk_size]), 4)}
         for offset in range(0, min(len(data), chunk_size * 32), chunk_size)
     ]
+    limitations = ["Static triage only; the sample was not executed."]
+    if bytes_analyzed < size_bytes:
+        limitations.append(
+            f"Only the first {bytes_analyzed} of {size_bytes} bytes were read for entropy/strings/type; "
+            "hashes still cover the full file."
+        )
     return {
         "sample": {"path": str(path), "name": path.name},
         "hashes": {
@@ -91,7 +110,8 @@ def triage(path: Path) -> dict[str, Any]:
             "sha256": hash_file(path, "sha256"),
         },
         "file_type": file_type_guess(data[:16]),
-        "size_bytes": len(data),
+        "size_bytes": size_bytes,
+        "bytes_analyzed": bytes_analyzed,
         "entropy": {"overall": round(entropy(data), 4), "chunks": chunks},
         "strings_summary": {"ascii_preview": ascii_strings(data)},
         "tool_outputs": {
@@ -99,7 +119,7 @@ def triage(path: Path) -> dict[str, Any]:
             "objdump_header": run_optional_tool(["objdump", "-h", str(path)]),
             "readelf_header": run_optional_tool(["readelf", "-h", str(path)]),
         },
-        "limitations": ["Static triage only; the sample was not executed."],
+        "limitations": limitations,
     }
 
 
@@ -107,9 +127,15 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Static binary triage")
     parser.add_argument("sample")
     parser.add_argument("--json-out", required=True)
+    parser.add_argument(
+        "--max-read-bytes",
+        type=positive_int,
+        default=DEFAULT_MAX_READ_BYTES,
+        help="Maximum bytes read into memory for entropy/strings/type; hashes always stream the full file",
+    )
     args = parser.parse_args()
 
-    payload = triage(Path(args.sample))
+    payload = triage(Path(args.sample), max_read_bytes=args.max_read_bytes)
     out = Path(args.json_out)
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(out.suffix + ".tmp")
@@ -120,4 +146,3 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
-

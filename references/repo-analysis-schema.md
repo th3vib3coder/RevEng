@@ -3,7 +3,7 @@
 ## repo_inventory.json
 
 - `root`: absolute analyzed repository path.
-- `generated_at`: UTC ISO-8601 timestamp.
+- `generated_at`: optional provenance timestamp. It is omitted by default so repeated static runs over the same repository are byte-reproducible; pass `--generated-at` when wall-clock provenance is required.
 - `ignored_directories`: directory names skipped during traversal.
 - `files`: file records with `path`, `size_bytes`, `sha256`, `language`, `kind`, and `is_text`.
 - `languages`: counts and bytes by language.
@@ -33,4 +33,3 @@ Each line is a JSON object:
 - `symbols`: statically extracted symbols such as classes, functions, exports, and route handlers.
 - `imports`: statically extracted import/dependency hints.
 - `evidence`: short line-numbered excerpts used for traceability.
-
