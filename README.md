@@ -180,6 +180,21 @@ It forbids accepting parity from a name alone, one shared string alone, or model
 
 Run scripts from the repository root.
 
+### Unified CLI
+
+`scripts/reveng.py` is a single entry point over the helpers. It is static-first: it only launches RevEng's own helper scripts and never executes analyzed samples, repository code, or external adapters.
+
+```bash
+python3 scripts/reveng.py analyze-repo /path/to/repo --out case   # inventory + map + corpus(+graph_refs) + case_manifest
+python3 scripts/reveng.py triage-binary /path/to/sample --out triage.json
+python3 scripts/reveng.py extract-iocs evidence.txt --out iocs.json
+python3 scripts/reveng.py android-scan /path/to/decompiled --out android.json
+python3 scripts/reveng.py check-tools --json
+python3 scripts/reveng.py serve-corpus case/repo_corpus.jsonl --repo-map case/repo_map.json
+```
+
+On Windows, use `python` if `python3` is absent.
+
 ### Repository Analysis
 
 ```bash
