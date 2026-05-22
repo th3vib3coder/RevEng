@@ -15,12 +15,12 @@ This plan is derived from `060-atomic-ideas-for-reveng.md`. It is not an ACCEPT 
 
 ## Phase 1: Research Ledger And Case Manifests
 
-Status: implemented for source-repo cases.
+Status: implemented for source-repo and file-target cases.
 
 Tasks:
 
 - Added `references/case-manifest-schema.md`.
-- Added `scripts/case_manifest.py` to create `case_manifest.json` for source repository analysis outputs.
+- Added `scripts/case_manifest.py` to create `case_manifest.json` for source repository and file-target analysis outputs.
 - Records input path, stable target-derived case ID, target content hash, artifact hashes, helper script hashes, caps, ignored paths, warnings, and static-first safety posture.
 - Updated repo skill to use a case directory for deep analysis.
 
@@ -36,11 +36,21 @@ Acceptance:
 
 ## Phase 2: Graph-Aware Source Repository Analysis
 
-Status: planned.
+Status: partially implemented.
+
+Implemented:
+
+- `repo_map.py` emits a Python `module_graph` with stable modules, internal import `edges`, unresolved/external imports, and graph-specific limitations.
+- Python source analysis uses AST for imports, symbols, classes, functions, async functions, and route decorators when parseable.
+- `module_graph.metrics` includes per-module `fan_in`, `fan_out`, and import `cycles`.
+- Cycle detection uses iterative Tarjan/SCC logic to avoid recursion-limit failures on deep graphs.
+- `repo_corpus_mcp.py` exposes `reveng.module_graph` with internal edges, external imports, hard-capped graph metrics, cursor pagination, and `truncated`.
+
+Remaining:
 
 Tasks:
 
-- Extend `repo_map.py` with stable graph nodes and edges:
+- Extend `repo_map.py` beyond current Python module graph into a general graph model:
   - file -> imports -> internal module
   - file -> symbol definitions
   - route -> handler
@@ -65,7 +75,17 @@ Acceptance:
 
 ## Phase 3: Token-Safe MCP Hardening
 
-Status: planned.
+Status: partially implemented.
+
+Implemented:
+
+- `repo_corpus_mcp.py` is read-only stdio JSON-RPC over `repo_corpus.jsonl`.
+- Tool results split compact `content` text from machine-readable `structuredContent`.
+- Corpus search, symbol listing, module graph edges, and module graph metrics are hard-capped and cursor-paginated where applicable.
+- Invalid tool inputs return tool-visible structured errors with `isError: true`.
+- `get_record` validates repository-relative paths and never reads source files from disk.
+
+Remaining:
 
 Tasks:
 
@@ -156,7 +176,14 @@ Acceptance:
 
 ## Phase 6: Evaluation Upgrade
 
-Status: planned.
+Status: partially implemented.
+
+Implemented:
+
+- `scripts/run_golden_evals.py` runs end-to-end golden checks for repository analysis, binary triage, IOC extraction, Android API scanning, case manifests, corpus MCP search/get/error handling, and module graph MCP metrics.
+- CI runs pytest, byte-compilation, golden evaluations, and manifest sync checks on Linux and Windows.
+
+Remaining:
 
 Tasks:
 
@@ -234,11 +261,18 @@ Acceptance:
 
 ## First Implementation Slice
 
-Start here:
+Current status:
 
-1. Phase 1 case manifest schema and repo case manifest output.
-2. Phase 2 source repository graph nodes/edges.
-3. Phase 3 MCP structured errors and graph tools.
+1. Phase 1 is implemented for source repositories and file targets.
+2. Phase 2 is partially implemented through Python module graph edges, metrics, cycles, and MCP exposure.
+3. Phase 3 is partially implemented through the read-only corpus MCP, structured tool errors, pagination, and caps.
+
+Next implementation targets:
+
+1. General graph schema and graph refs in `repo_corpus.jsonl`.
+2. MCP tools `reveng.list_graph_nodes`, `reveng.list_graph_edges`, and `reveng.graph_neighbors`.
+3. Injection-looking string tests and a standard MCP response envelope.
+4. External adapter capability schema for Ghidra/IDA/radare2/Binary Ninja exports.
 
 Reason:
 
