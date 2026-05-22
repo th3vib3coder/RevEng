@@ -199,6 +199,13 @@ The server exposes:
 - `reveng.search_corpus`
 - `reveng.get_record`
 - `reveng.list_symbols`
+- `reveng.module_graph` (requires `--repo-map repo_map.json`)
+
+Pass `--repo-map repo_map.json` to also enable module-graph queries:
+
+```bash
+python3 scripts/repo_corpus_mcp.py --corpus repo_corpus.jsonl --repo-map repo_map.json
+```
 
 Each tool returns compact text plus `structuredContent`, uses hard-capped pagination, and returns validation failures as tool-visible structured errors.
 

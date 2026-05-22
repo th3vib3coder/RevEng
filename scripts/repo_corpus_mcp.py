@@ -234,6 +234,55 @@ def tool_corpus_summary(corpus: Path, args: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def tool_module_graph(module_graph: dict[str, Any] | None, args: dict[str, Any]) -> dict[str, Any]:
+    if not isinstance(module_graph, dict):
+        return tool_error(
+            "graph_unavailable",
+            "module graph not loaded; start the server with --repo-map <repo_map.json>",
+        )
+    module = args.get("module")
+    if module is not None and not isinstance(module, str):
+        raise ToolInputError("module must be a string when provided")
+    direction = args.get("direction", "both")
+    if direction not in ("dependencies", "dependents", "both"):
+        raise ToolInputError("direction must be one of: dependencies, dependents, both")
+    limit = bounded_limit(args.get("limit"))
+    start = cursor_to_int(args.get("cursor"))
+    edges = [edge for edge in (module_graph.get("edges") or []) if isinstance(edge, dict)]
+
+    def keep(edge: dict[str, Any]) -> bool:
+        if module is None:
+            return True
+        if direction == "dependencies":
+            return edge.get("from") == module
+        if direction == "dependents":
+            return edge.get("to") == module
+        return edge.get("from") == module or edge.get("to") == module
+
+    filtered = [edge for edge in edges if keep(edge)]
+    page = filtered[start : start + limit]
+    next_cursor = str(start + limit) if start + limit < len(filtered) else None
+    external = [
+        item
+        for item in (module_graph.get("external_imports") or [])
+        if isinstance(item, dict) and (module is None or item.get("from") == module)
+    ][:MAX_LIMIT]
+    done = next_cursor is None
+    text = f"{len(page)} edge(s)" + (f" for '{module}'" if module else "") + ("" if done else f"; cursor {next_cursor}")
+    return tool_result(
+        text,
+        {
+            "edges": page,
+            "external_imports": external,
+            "module": module,
+            "direction": direction,
+            "nextCursor": next_cursor,
+            "done": done,
+            "limit": limit,
+        },
+    )
+
+
 TOOLS: list[dict[str, Any]] = [
     {
         "name": "reveng.corpus_summary",
@@ -261,6 +310,21 @@ TOOLS: list[dict[str, Any]] = [
             "properties": {
                 "query": {"type": "string", "description": "Optional case-insensitive substring filter"},
                 "cursor": {"type": "string", "description": "Opaque cursor from the previous response"},
+                "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT},
+            },
+            "additionalProperties": False,
+        },
+    },
+    {
+        "name": "reveng.module_graph",
+        "title": "RevEng Module Graph",
+        "description": "Query the Python module dependency graph (internal edges + external imports) from repo_map.json. Read-only; requires the server started with --repo-map.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "module": {"type": "string", "description": "Optional module to filter, e.g. pkg.cli"},
+                "direction": {"type": "string", "enum": ["dependencies", "dependents", "both"]},
+                "cursor": {"type": "string"},
                 "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT},
             },
             "additionalProperties": False,
@@ -310,22 +374,24 @@ def handle_initialize(params: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def handle_tools_call(corpus: Path, params: dict[str, Any]) -> dict[str, Any]:
+def handle_tools_call(corpus: Path, module_graph: dict[str, Any] | None, params: dict[str, Any]) -> dict[str, Any]:
     name = params.get("name")
     args = params.get("arguments", {})
-    if not isinstance(name, str) or name not in TOOL_HANDLERS:
+    if not isinstance(name, str) or (name not in TOOL_HANDLERS and name != "reveng.module_graph"):
         raise KeyError(f"unknown tool: {name!r}")
     if args is None:
         args = {}
     if not isinstance(args, dict):
         return tool_error("invalid_arguments", "arguments must be an object", {"arguments": "object"})
     try:
+        if name == "reveng.module_graph":
+            return tool_module_graph(module_graph, args)
         return TOOL_HANDLERS[name](corpus, args)
     except ToolInputError as exc:
         return tool_error("invalid_arguments", str(exc))
 
 
-def handle_request(corpus: Path, message: dict[str, Any]) -> dict[str, Any] | None:
+def handle_request(corpus: Path, module_graph: dict[str, Any] | None, message: dict[str, Any]) -> dict[str, Any] | None:
     request_id = message.get("id")
     method = message.get("method")
     params = message.get("params", {})
@@ -341,7 +407,7 @@ def handle_request(corpus: Path, message: dict[str, Any]) -> dict[str, Any] | No
         if method == "tools/list":
             return jsonrpc_result(request_id, {"resultType": "complete", "tools": TOOLS})
         if method == "tools/call":
-            return jsonrpc_result(request_id, handle_tools_call(corpus, params))
+            return jsonrpc_result(request_id, handle_tools_call(corpus, module_graph, params))
         return jsonrpc_error(request_id, -32601, f"method not found: {method}")
     except KeyError as exc:
         return jsonrpc_error(request_id, -32602, str(exc))
@@ -349,7 +415,7 @@ def handle_request(corpus: Path, message: dict[str, Any]) -> dict[str, Any] | No
         return jsonrpc_error(request_id, -32603, f"internal error: {exc}")
 
 
-def serve_stdio(corpus: Path) -> int:
+def serve_stdio(corpus: Path, module_graph: dict[str, Any] | None) -> int:
     if not corpus.is_file():
         raise SystemExit(f"corpus not found: {corpus}")
     for line in sys.stdin:
@@ -367,7 +433,7 @@ def serve_stdio(corpus: Path) -> int:
             if not isinstance(item, dict):
                 responses.append(jsonrpc_error(None, -32600, "invalid request"))
                 continue
-            response = handle_request(corpus, item)
+            response = handle_request(corpus, module_graph, item)
             if response is not None:
                 responses.append(response)
         if isinstance(message, list):
@@ -379,11 +445,22 @@ def serve_stdio(corpus: Path) -> int:
     return 0
 
 
+def load_module_graph(path: Path) -> dict[str, Any] | None:
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return None
+    graph = data.get("module_graph") if isinstance(data, dict) else None
+    return graph if isinstance(graph, dict) else None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="Read-only MCP stdio server for RevEng repo_corpus.jsonl")
     parser.add_argument("--corpus", required=True, help="Path to repo_corpus.jsonl generated by repo_corpus_export.py")
+    parser.add_argument("--repo-map", help="Optional repo_map.json to enable the reveng.module_graph tool")
     args = parser.parse_args()
-    return serve_stdio(Path(args.corpus).resolve())
+    module_graph = load_module_graph(Path(args.repo_map)) if args.repo_map else None
+    return serve_stdio(Path(args.corpus).resolve(), module_graph)
 
 
 if __name__ == "__main__":
