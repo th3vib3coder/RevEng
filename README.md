@@ -243,6 +243,8 @@ python3 scripts/android_api_scan.py /path/to/decompiled/sources --json-out andro
 python3 scripts/re_tool_check.py --json
 ```
 
+The JSON output includes ordinary static tool availability plus optional external adapter inventory under `adapters`. Adapter discovery is PATH lookup only: RevEng does not start IDA, Ghidra, radare2, Binary Ninja, MCP servers, debuggers, containers, or raw eval surfaces during this check.
+
 ### Ghidra Summary Export
 
 ```bash
@@ -253,7 +255,7 @@ On Windows, use `python` if `python3` is not available.
 
 ## Output Schemas
 
-Schema documentation lives in `references/output-schemas.md` and `references/repo-analysis-schema.md`.
+Schema documentation lives in `references/output-schemas.md`, `references/repo-analysis-schema.md`, `references/graph-analysis-schema.md`, and `references/external-adapter-schema.md`.
 
 Important outputs:
 
@@ -266,6 +268,7 @@ Important outputs:
 - `iocs.json`: grouped traceable IOC report.
 - `android_api.json`: Android API surface report.
 - `ghidra_summary.json`: Ghidra static summary when run in Ghidra/PyGhidra.
+- `re_tool_check.py --json`: local static tool and optional external adapter inventory with safety classes.
 
 ## Installation
 

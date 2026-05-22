@@ -32,7 +32,8 @@ Then read `sample.triage.json` and report:
 - strings preview and suspicious static artifacts
 - limitations and next recommended skill
 
+If `re_tool_check.py --json` reports external adapters, treat them as optional evidence providers only. Do not start adapter MCP servers, import the sample into a disassembler, mutate databases, debug, emulate, or use raw eval without an explicit PAUSE-gated operator approval.
+
 ## Output
 
 Return a concise Markdown report and cite values from the JSON output. Recommend `unpacking-analysis` only when evidence supports packing or obfuscation. Recommend `ioc-extraction` when strings or logs contain extractable indicators.
-

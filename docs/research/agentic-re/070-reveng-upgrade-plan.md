@@ -106,25 +106,26 @@ Acceptance:
 
 ## Phase 4: External Adapter Schema
 
-Status: planned.
+Status: implemented for discovery-only adapter inventory.
 
-Tasks:
+Implemented:
 
-- Add `references/external-adapter-schema.md`.
-- Extend `re_tool_check.py --json` to report optional adapter capabilities:
+- Added `references/external-adapter-schema.md`.
+- Extended `re_tool_check.py --json` to report optional adapter capabilities:
   - `idac`
   - `ida-pro-mcp`
   - `r2mcp`
   - `reva`
   - `ghidra`
   - `binary-ninja-headless-mcp`
-- Record safety class:
+- Records safety class:
   - `read_only`
   - `mutation_preview`
   - `mutation_commit`
   - `execution`
   - `raw_eval`
-- Update skills to use adapters only as optional evidence providers.
+- Reports `execution_policy` proving discovery only uses PATH lookup and does not invoke adapters.
+- Updated skills/docs to treat adapters only as optional evidence providers.
 
 Tests:
 
@@ -255,13 +256,14 @@ Current status:
 1. Phase 1 is implemented for source repositories and file targets.
 2. Phase 2 is implemented for the zero-dependency source-repo graph layer.
 3. Phase 3 is partially implemented through the read-only corpus MCP, structured tool errors, pagination, and caps.
+4. Phase 4 is implemented for discovery-only external adapter inventory.
 
 Next implementation targets:
 
 1. Injection-looking string tests and a standard MCP response envelope.
-2. External adapter capability schema for Ghidra/IDA/radare2/Binary Ninja exports.
-3. Ghidra fake graph export fixtures.
-4. Labeled eval fixtures for graph precision and unsafe-action detection.
+2. Ghidra fake graph export fixtures.
+3. Labeled eval fixtures for graph precision and unsafe-action detection.
+4. Report templates with negative evidence and alternate hypotheses.
 
 Reason:
 

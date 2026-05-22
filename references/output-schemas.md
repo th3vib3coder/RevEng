@@ -26,6 +26,10 @@ Structured outputs:
 
 `repo_map.json` includes both the legacy Python `module_graph` and the general `graph` evidence model. `repo_corpus.jsonl` records include `graph_refs` when exported with `--repo-map`. See `references/repo-analysis-schema.md` and `references/graph-analysis-schema.md` for field definitions.
 
+## external_adapter_inventory
+
+JSON emitted by `scripts/re_tool_check.py --json` with `adapter_schema`, `adapters`, `execution_policy`, and `warnings`. Adapter reports are discovery-only and never imply permission to invoke external tools. See `references/external-adapter-schema.md`.
+
 ## triage_report
 
 JSON with `sample`, `hashes`, `file_type`, `size_bytes`, `bytes_analyzed`, `entropy`, `strings_summary`, `tool_outputs`, and `limitations`. `bytes_analyzed` may be smaller than `size_bytes` for very large files: entropy/strings/type use the first `--max-read-bytes` bytes (default 64 MiB) while hashes always stream the whole file. A truncation note is added to `limitations` when this happens.

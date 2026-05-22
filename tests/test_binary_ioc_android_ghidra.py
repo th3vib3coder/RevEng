@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import subprocess
 import sys
 from pathlib import Path
@@ -18,12 +19,83 @@ def run_script(script: str, *args: str, check: bool = True) -> subprocess.Comple
     )
 
 
+def load_script_module(script_name: str):
+    scripts_dir = str(ROOT / "scripts")
+    if scripts_dir not in sys.path:
+        sys.path.insert(0, scripts_dir)
+    spec = importlib.util.spec_from_file_location(script_name.removesuffix(".py"), ROOT / "scripts" / script_name)
+    assert spec is not None
+    assert spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
 def test_tool_check_emits_python_and_tool_map() -> None:
     result = run_script("re_tool_check.py", "--json")
     payload = json.loads(result.stdout)
     assert payload["python"]["executable"]
     assert "strings" in payload["tools"]
     assert "jadx" in payload["tools"]
+    assert payload["adapter_schema"] == "reveng.external_adapters.v1"
+    assert "ghidra" in payload["adapters"]
+
+
+def test_tool_check_reports_external_adapter_capabilities_without_invoking_tools() -> None:
+    re_tool_check = load_script_module("re_tool_check.py")
+    mapping = {
+        "idac": "/fake/bin/idac",
+        "analyzeHeadless": "/fake/ghidra/analyzeHeadless",
+        "pyghidra": "/fake/bin/pyghidra",
+        "r2mcp": "/fake/bin/r2mcp",
+    }
+    observed: list[str] = []
+
+    def fake_which(name: str) -> str | None:
+        observed.append(name)
+        return mapping.get(name)
+
+    payload = re_tool_check.check_tools(["idac", "analyzeHeadless", "r2mcp"], which=fake_which)
+    adapters = payload["adapters"]
+    assert payload["execution_policy"]["adapters_invoked"] is False
+    assert adapters["idac"]["available"] is True
+    assert adapters["idac"]["entrypoints"][0]["path"] == "/fake/bin/idac"
+    assert {"read_only", "mutation_preview", "mutation_commit"}.issubset(set(adapters["idac"]["safety_classes"]))
+    assert adapters["ghidra"]["available"] is True
+    assert {item["name"] for item in adapters["ghidra"]["entrypoints"]} == {"analyzeHeadless", "pyghidra"}
+    assert adapters["r2mcp"]["available"] is True
+    assert adapters["binary-ninja-headless-mcp"]["available"] is False
+    assert "idac" in observed
+    assert "binary-ninja-headless-mcp" in observed
+
+
+def test_tool_check_marks_raw_eval_adapters_as_pause_required() -> None:
+    re_tool_check = load_script_module("re_tool_check.py")
+
+    def fake_which(name: str) -> str | None:
+        if name == "binary-ninja-headless-mcp":
+            return "/fake/bin/binary-ninja-headless-mcp"
+        return None
+
+    payload = re_tool_check.check_tools([], which=fake_which)
+    adapter = payload["adapters"]["binary-ninja-headless-mcp"]
+    raw_eval = next(cap for cap in adapter["capabilities"] if cap["safety_class"] == "raw_eval")
+    assert adapter["available"] is True
+    assert raw_eval["requires_pause"] is True
+    assert raw_eval["enabled_by_default"] is False
+    assert adapter["invoked"] is False
+
+
+def test_tool_check_missing_adapters_degrade_gracefully() -> None:
+    re_tool_check = load_script_module("re_tool_check.py")
+
+    payload = re_tool_check.check_tools(["idac"], which=lambda _name: None)
+
+    assert payload["tools"]["idac"] is None
+    assert all(adapter["available"] is False for adapter in payload["adapters"].values())
+    assert payload["warnings"]
+
 
 
 def test_static_triage_reports_hashes_entropy_and_strings(tmp_path: Path) -> None:

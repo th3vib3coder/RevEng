@@ -26,6 +26,21 @@ Optional tools improve evidence quality but are not required for core JSON outpu
 
 The plugin does not download, install, or run these tools automatically.
 
+## External Adapter Discovery
+
+`scripts/re_tool_check.py --json` reports optional adapter availability under `adapters` using PATH lookup only. It does not start MCP servers, disassemblers, debuggers, containers, or eval surfaces.
+
+Current adapter ids:
+
+- `idac`
+- `ida-pro-mcp`
+- `r2mcp`
+- `reva`
+- `ghidra`
+- `binary-ninja-headless-mcp`
+
+Safety classes are documented in `references/external-adapter-schema.md`. `mutation_commit`, `execution`, and `raw_eval` capabilities require explicit PAUSE-gated operator approval before use.
+
 ## MCP Corpus Server
 
 `scripts/repo_corpus_mcp.py` is a zero-dependency stdio MCP server over `repo_corpus.jsonl`.
