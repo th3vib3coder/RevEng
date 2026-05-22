@@ -172,7 +172,7 @@ def tool_search_corpus(corpus: Path, args: dict[str, Any]) -> dict[str, Any]:
     text = f"{len(records)} corpus match(es) for '{query}'" + ("" if done else f"; continue with cursor {next_cursor}")
     return tool_result(
         text,
-        {"records": records, "query": query, "nextCursor": next_cursor, "done": done, "limit": limit},
+        {"records": records, "query": query[:MAX_TEXT_CHARS], "nextCursor": next_cursor, "done": done, "limit": limit},
     )
 
 
@@ -217,7 +217,7 @@ def tool_list_symbols(corpus: Path, args: dict[str, Any]) -> dict[str, Any]:
             break
     done = next_cursor is None
     text = f"{len(matches)} symbol match(es)" + ("" if done else f"; continue with cursor {next_cursor}")
-    return tool_result(text, {"matches": matches, "query": query, "nextCursor": next_cursor, "done": done, "limit": limit})
+    return tool_result(text, {"matches": matches, "query": query[:MAX_TEXT_CHARS], "nextCursor": next_cursor, "done": done, "limit": limit})
 
 
 def tool_corpus_summary(corpus: Path, args: dict[str, Any]) -> dict[str, Any]:
@@ -368,7 +368,7 @@ def tool_list_graph_nodes(repo_graph: dict[str, Any] | None, args: dict[str, Any
         {
             "nodes": [compact_graph_node(node) for node in page],
             "kind": kind,
-            "query": query,
+            "query": query[:MAX_TEXT_CHARS],
             "nextCursor": next_cursor,
             "done": done,
             "limit": limit,
