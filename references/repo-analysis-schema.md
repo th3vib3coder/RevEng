@@ -34,3 +34,16 @@ Each line is a JSON object:
 - `symbols`: statically extracted symbols such as classes, functions, exports, and route handlers.
 - `imports`: statically extracted import/dependency hints.
 - `evidence`: short line-numbered excerpts used for traceability.
+
+## MCP corpus server
+
+`scripts/repo_corpus_mcp.py` exposes a read-only stdio MCP server over `repo_corpus.jsonl`.
+
+Tools:
+
+- `reveng.corpus_summary`: count corpus records by kind and language.
+- `reveng.search_corpus`: search path, summary, symbols, imports, and evidence with `cursor` and hard-capped `limit`.
+- `reveng.get_record`: retrieve one compact record by repository-relative path.
+- `reveng.list_symbols`: list symbol hints with cursor pagination.
+
+Tool results return compact `content` text plus full `structuredContent`. Argument validation errors are returned as tool-visible `isError: true` results with a structured error object so an agent can self-correct without losing protocol state.

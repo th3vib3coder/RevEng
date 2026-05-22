@@ -34,6 +34,43 @@ def run_script(script: str, *args: str | Path) -> subprocess.CompletedProcess[st
     return result
 
 
+class McpSession:
+    def __init__(self, corpus: Path) -> None:
+        self.process = subprocess.Popen(
+            [sys.executable, str(SCRIPT_DIR / "repo_corpus_mcp.py"), "--corpus", str(corpus)],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+        )
+        self.next_id = 1
+
+    def request(self, method: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        if self.process.stdin is None or self.process.stdout is None:
+            raise EvalFailure("MCP process stdio unavailable")
+        request_id = self.next_id
+        self.next_id += 1
+        payload: dict[str, Any] = {"jsonrpc": "2.0", "id": request_id, "method": method}
+        if params is not None:
+            payload["params"] = params
+        self.process.stdin.write(json.dumps(payload) + "\n")
+        self.process.stdin.flush()
+        line = self.process.stdout.readline()
+        if not line:
+            stderr = self.process.stderr.read() if self.process.stderr else ""
+            raise EvalFailure(f"MCP server produced no response; stderr={stderr}")
+        response = json.loads(line)
+        if response.get("id") != request_id:
+            raise EvalFailure(f"MCP response id mismatch: {response}")
+        return response
+
+    def close(self) -> None:
+        if self.process.stdin is not None:
+            self.process.stdin.close()
+        self.process.terminate()
+        self.process.wait(timeout=5)
+
+
 def read_json(path: Path) -> Any:
     return json.loads(path.read_text(encoding="utf-8"))
 
@@ -173,11 +210,36 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     require("smuggled_symbol" not in records["pkg/cli.py"]["symbols"], "AST symbols leaked a docstring def")
     require("smuggled_import" not in records["pkg/cli.py"]["imports"], "AST imports leaked a docstring import")
 
+    mcp = McpSession(corpus_out)
+    try:
+        init = mcp.request("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "golden", "version": "0"}})
+        require(init["result"]["capabilities"]["tools"]["listChanged"] is False, "MCP initialize did not expose tools capability")
+        search = mcp.request(
+            "tools/call",
+            {"name": "reveng.search_corpus", "arguments": {"query": "format_value", "limit": 1}},
+        )["result"]
+        require(search["isError"] is False, "MCP corpus search returned error")
+        require(search["structuredContent"]["records"], "MCP corpus search returned no records")
+        require(search["structuredContent"]["nextCursor"], "MCP corpus search did not paginate at limit=1")
+        record = mcp.request(
+            "tools/call",
+            {"name": "reveng.get_record", "arguments": {"path": "pkg/cli.py"}},
+        )["result"]["structuredContent"]["record"]
+        require(record["path"] == "pkg/cli.py", "MCP get_record returned wrong path")
+        schema_error = mcp.request(
+            "tools/call",
+            {"name": "reveng.search_corpus", "arguments": {"query": "x", "limit": 5000}},
+        )["result"]
+        require(schema_error["isError"] is True, "MCP invalid arguments were not tool-visible errors")
+    finally:
+        mcp.close()
+
     return {
         "inventory_files": inventory["file_count"],
         "dependencies": sorted(deps),
         "routes": sorted(routes),
         "module_edges": len(graph_edges),
+        "mcp_tools_checked": True,
         "corpus_records": len(corpus),
     }
 

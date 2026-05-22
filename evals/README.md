@@ -17,6 +17,7 @@ python scripts/run_golden_evals.py --keep
 The current eval cases cover:
 
 - repository inventory, map, plugin-surface detection, route extraction, dependency extraction, risks, and corpus records
+- read-only MCP stdio corpus queries with tool discovery, cursor pagination, split text/structured responses, and tool-visible schema errors
 - binary triage with bounded reads and full-file streaming hashes
 - IOC extraction with defanged normalization, contextual version-like IPv4 confidence, and overlong-line truncation
 - Android API scanning with endpoints, auth evidence, base URLs, and oversized-file skips

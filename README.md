@@ -82,7 +82,7 @@ It emits:
 - `repo_corpus.jsonl`
 - a Markdown report written by the agent from the structured evidence
 
-The JSONL corpus is intended to be ready for downstream RAG/MCP ingestion.
+The JSONL corpus is ready for downstream RAG/MCP ingestion. RevEng also ships a read-only stdio MCP server over that corpus for agentic querying with cursor pagination and structured outputs.
 
 ### `binary-triage`
 
@@ -187,6 +187,21 @@ python3 scripts/repo_map.py /path/to/repo --json-out repo_map.json
 python3 scripts/repo_corpus_export.py /path/to/repo --jsonl-out repo_corpus.jsonl
 ```
 
+Serve the generated corpus over a read-only MCP stdio server:
+
+```bash
+python3 scripts/repo_corpus_mcp.py --corpus repo_corpus.jsonl
+```
+
+The server exposes:
+
+- `reveng.corpus_summary`
+- `reveng.search_corpus`
+- `reveng.get_record`
+- `reveng.list_symbols`
+
+Each tool returns compact text plus `structuredContent`, uses hard-capped pagination, and returns validation failures as tool-visible structured errors.
+
 ### Binary Triage
 
 ```bash
@@ -228,6 +243,7 @@ Important outputs:
 - `repo_inventory.json`: repository file inventory, language counts, manifest list, hashes.
 - `repo_map.json`: entrypoints, dependencies, routes, plugin surfaces, configs, imports, Python module graph, risks, limitations.
 - `repo_corpus.jsonl`: one JSON record per included file with path, kind, language, SHA256, summary, symbols, imports, and evidence excerpts.
+- `repo_corpus_mcp.py`: read-only stdio MCP server for querying `repo_corpus.jsonl`.
 - `sample.triage.json`: binary hash/type/entropy/strings/tool-output report.
 - `iocs.json`: grouped traceable IOC report.
 - `android_api.json`: Android API surface report.
@@ -292,6 +308,7 @@ The test suite covers:
 - Ghidra wrapper behavior outside Ghidra
 - absence of local absolute paths in shipped files
 - golden end-to-end workflow invariants for repository analysis, binary triage, IOC extraction, and Android API scanning
+- stdio MCP corpus tool discovery, paginated query behavior, split text/structured responses, and tool-visible schema errors
 
 ## Limitations
 
