@@ -18,7 +18,7 @@
 - `plugins`: Codex, Claude Code, MCP, and app/plugin manifest surfaces.
 - `configs`: CI, Docker, env, settings, and workflow files.
 - `imports`: source-level import hints by file.
-- `module_graph`: source module graph with `modules`, internal import `edges`, unresolved/external `external_imports`, `metrics` (per-module `fan_in`/`fan_out` plus import `cycles` as strongly-connected components and self-loops), and graph-specific `limitations`. Python imports use AST when parseable, including common `src/` layout package roots from `pyproject.toml` or package markers; JavaScript/TypeScript relative imports use a zero-dependency comment-aware static scanner.
+- `module_graph`: source module graph with `modules`, internal import `edges`, unresolved/external `external_imports`, `metrics` (per-module `fan_in`/`fan_out` plus import `cycles` as strongly-connected components and self-loops), and graph-specific `limitations`. Python imports use AST when parseable, including common `src/` layout package roots from `pyproject.toml` or package markers and top-level script roots such as `scripts/`; JavaScript/TypeScript relative imports use a zero-dependency comment-aware static scanner.
 - `graph`: general static evidence graph. Nodes include files, Python modules, symbols, routes, entrypoints, dependencies, plugins, and external imports. Edges include file-to-symbol, file-to-module, module-imports-module, module-imports-external, file-to-route, route-to-handler symbol, manifest-to-entrypoint, manifest-to-dependency, and file-to-plugin relationships. See `references/graph-analysis-schema.md`.
 - `risks`: static supply-chain and execution-risk observations.
 - `limitations`: what was not executed or could not be inferred.

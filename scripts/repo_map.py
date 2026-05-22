@@ -34,6 +34,7 @@ SYMBOL_PATTERNS = [
 PYTHON_SUFFIXES = {".py", ".pyi"}
 JAVASCRIPT_SUFFIXES = {".js", ".jsx", ".mjs", ".cjs", ".ts", ".tsx"}
 SOURCE_MODULE_SUFFIXES = PYTHON_SUFFIXES | JAVASCRIPT_SUFFIXES
+PYTHON_SCRIPT_ROOT_NAMES = {"scripts", "tools", "bin"}
 
 
 def parse_toml_array_items(text: str) -> list[str]:
@@ -138,6 +139,10 @@ def detect_python_source_roots(root: Path) -> list[Path]:
     has_src_package = src.is_dir() and any(child.is_dir() and (child / "__init__.py").is_file() for child in src.iterdir())
     if src.is_dir() and (pyproject_declares_source_root(root, "src") or has_src_package):
         roots.append(src)
+    for name in sorted(PYTHON_SCRIPT_ROOT_NAMES):
+        candidate = root / name
+        if candidate.is_dir() and not (candidate / "__init__.py").exists() and any(candidate.glob("*.py")):
+            roots.append(candidate)
     roots.append(root)
     return roots
 

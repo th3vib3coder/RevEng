@@ -242,6 +242,34 @@ where = ["src"]
     assert ("re_agent.backend.registry", "re_agent.backend.protocol") not in external_imports
 
 
+def test_repo_map_resolves_top_level_scripts_dir_imports(tmp_path: Path) -> None:
+    repo = tmp_path / "script-root-repo"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "pyproject.toml").write_text("[project]\nname = \"script-root-fixture\"\n", encoding="utf-8")
+    (repo / "scripts" / "repo_common.py").write_text(
+        "def helper():\n    return 1\n",
+        encoding="utf-8",
+    )
+    (repo / "scripts" / "repo_map.py").write_text(
+        "from repo_common import helper\n\n\ndef main():\n    return helper()\n",
+        encoding="utf-8",
+    )
+    out = tmp_path / "repo_map.json"
+
+    run_script("repo_map.py", str(repo), "--json-out", str(out))
+
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    graph = payload["module_graph"]
+    modules = {item["module"]: item["path"] for item in graph["modules"]}
+    edges = {(item["from"], item["to"], item["import"]) for item in graph["edges"]}
+    external_imports = {(item["from"], item["import"]) for item in graph["external_imports"]}
+
+    assert modules["repo_map"] == "scripts/repo_map.py"
+    assert modules["repo_common"] == "scripts/repo_common.py"
+    assert ("repo_map", "repo_common", "repo_common") in edges
+    assert ("repo_map", "repo_common") not in external_imports
+
+
 def test_repo_map_builds_internal_javascript_module_graph(tmp_path: Path) -> None:
     repo = make_fixture(tmp_path)
     out = tmp_path / "repo_map.json"
