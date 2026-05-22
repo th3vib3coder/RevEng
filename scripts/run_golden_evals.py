@@ -73,6 +73,7 @@ def smuggled_symbol():
     pass
 '''
 from fastapi import FastAPI
+from pkg.helpers import format_value
 import requests
 
 app = FastAPI()
@@ -82,7 +83,14 @@ def read_item(item_id: str):
     return {"item_id": item_id}
 
 def main():
-    return "ok"
+    return format_value("ok")
+""".lstrip(),
+    )
+    write_text(
+        repo / "pkg" / "helpers.py",
+        """
+def format_value(value: str) -> str:
+    return value.upper()
 """.lstrip(),
     )
     write_text(
@@ -145,11 +153,15 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     entrypoints = {item["name"] for item in repo_map["entrypoints"]}
     plugin_paths = {item["path"] for item in repo_map["plugins"]}
     risks = {item["kind"] for item in repo_map["risks"]}
+    graph_edges = {(item["from"], item["to"], item["import"]) for item in repo_map["module_graph"]["edges"]}
+    graph_external = {(item["from"], item["import"]) for item in repo_map["module_graph"]["external_imports"]}
     require({"requests>=2", "pydantic>=2", "express"}.issubset(deps), f"missing dependencies: {deps}")
     require({"/items/{item_id}", "/health"}.issubset(routes), f"missing routes: {routes}")
     require({"golden-cli", "test"}.issubset(entrypoints), f"missing entrypoints: {entrypoints}")
     require({".codex-plugin/plugin.json", ".claude-plugin/plugin.json"}.issubset(plugin_paths), "plugin surfaces missing")
     require("secret_pattern" in risks, "secret-like risk not detected")
+    require(("pkg.cli", "pkg.helpers", "pkg.helpers") in graph_edges, f"missing internal Python module edge: {graph_edges}")
+    require(("pkg.cli", "requests") in graph_external, f"missing external Python import: {graph_external}")
 
     records = {record["path"]: record for record in corpus}
     require("pkg/cli.py" in records, "Python source missing from corpus")
@@ -165,6 +177,7 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
         "inventory_files": inventory["file_count"],
         "dependencies": sorted(deps),
         "routes": sorted(routes),
+        "module_edges": len(graph_edges),
         "corpus_records": len(corpus),
     }
 

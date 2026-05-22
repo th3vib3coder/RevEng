@@ -24,6 +24,8 @@ IMPORT_PATTERNS = [
     re.compile(r"\brequire\(\s*['\"]([^'\"]+)['\"]\s*\)", re.M),
 ]
 
+PYTHON_SUFFIXES = {".py", ".pyi"}
+
 
 def parse_toml_array_items(text: str) -> list[str]:
     items: list[str] = []
@@ -129,6 +131,76 @@ def extract_routes(text: str, rel: str) -> list[dict[str, Any]]:
     return routes
 
 
+def python_module_name(root: Path, path: Path) -> str:
+    rel = path.relative_to(root)
+    parts = list(rel.with_suffix("").parts)
+    if parts[-1] == "__init__":
+        parts = parts[:-1]
+    return ".".join(parts)
+
+
+def resolve_python_import(import_name: str, from_module: str, modules: set[str]) -> str | None:
+    if import_name.startswith("."):
+        level = len(import_name) - len(import_name.lstrip("."))
+        remainder = import_name[level:]
+        from_parts = from_module.split(".")
+        if level > len(from_parts):
+            return None
+        base_parts = from_parts[:-level]
+        target = ".".join(part for part in [*base_parts, remainder] if part)
+        return target if target in modules else None
+
+    parts = import_name.split(".")
+    for end in range(len(parts), 0, -1):
+        candidate = ".".join(parts[:end])
+        if candidate in modules:
+            return candidate
+    return None
+
+
+def build_python_module_graph(
+    python_modules: dict[str, str],
+    python_imports: dict[str, list[str]],
+) -> dict[str, Any]:
+    module_names = set(python_modules)
+    edges: list[dict[str, str]] = []
+    external_imports: list[dict[str, str]] = []
+    for from_module, imports in sorted(python_imports.items()):
+        for import_name in imports:
+            target = resolve_python_import(import_name, from_module, module_names)
+            if target and target != from_module:
+                edges.append(
+                    {
+                        "from": from_module,
+                        "from_path": python_modules[from_module],
+                        "to": target,
+                        "to_path": python_modules[target],
+                        "import": import_name,
+                    }
+                )
+            elif not target:
+                external_imports.append(
+                    {
+                        "from": from_module,
+                        "from_path": python_modules[from_module],
+                        "import": import_name,
+                    }
+                )
+    return {
+        "modules": [
+            {"module": module, "path": python_modules[module]}
+            for module in sorted(python_modules)
+            if module
+        ],
+        "edges": sorted(edges, key=lambda item: (item["from"], item["to"], item["import"])),
+        "external_imports": sorted(external_imports, key=lambda item: (item["from"], item["import"])),
+        "limitations": [
+            "Python module graph is static and import-derived; dynamic imports and runtime path mutation are not resolved.",
+            "JavaScript/TypeScript and other language graphs are not built in this zero-dependency implementation.",
+        ],
+    }
+
+
 def static_risks(root: Path, rel: str, text: str, kind: str) -> list[dict[str, Any]]:
     risks: list[dict[str, Any]] = []
     lowered = text.lower()
@@ -151,10 +223,16 @@ def build_map(root: Path) -> dict[str, Any]:
     configs: list[dict[str, Any]] = []
     imports: list[dict[str, Any]] = []
     risks: list[dict[str, Any]] = []
+    python_modules: dict[str, str] = {}
+    python_imports: dict[str, list[str]] = {}
 
     for path in iter_repo_files(root):
         rel = repo_relative(root, path)
         kind = classify_kind(root, path)
+        if path.suffix.lower() in PYTHON_SUFFIXES:
+            module = python_module_name(root, path)
+            if module:
+                python_modules[module] = rel
         if path.name == "pyproject.toml":
             eps, deps = parse_pyproject(path, rel)
             entrypoints.extend(eps)
@@ -171,8 +249,11 @@ def build_map(root: Path) -> dict[str, Any]:
 
         if path.suffix.lower() in {".py", ".js", ".jsx", ".ts", ".tsx", ".mjs", ".cjs"}:
             text = read_text(path)
-            definitions = python_definitions(text) if path.suffix.lower() in {".py", ".pyi"} else None
+            definitions = python_definitions(text) if path.suffix.lower() in PYTHON_SUFFIXES else None
             if definitions is not None:
+                module = python_module_name(root, path)
+                if module:
+                    python_imports[module] = definitions["imports"]
                 if definitions["imports"]:
                     imports.append({"path": rel, "imports": definitions["imports"]})
                 for route in definitions["routes"]:
@@ -194,10 +275,11 @@ def build_map(root: Path) -> dict[str, Any]:
         "plugins": sorted(plugins, key=lambda item: item["path"]),
         "configs": sorted(configs, key=lambda item: item["path"]),
         "imports": sorted(imports, key=lambda item: item["path"]),
+        "module_graph": build_python_module_graph(python_modules, python_imports),
         "risks": sorted(risks, key=lambda item: (item["source"], item["kind"])),
         "limitations": [
             "Static analysis only; repository code, tests, package managers, containers, and build scripts were not executed.",
-            "Routes, imports, and entrypoints are regex/manifest-derived candidates and require human confirmation for complex frameworks.",
+            "Python routes/imports use AST when parseable; non-Python routes/imports and invalid Python fallback to regex candidates and require human confirmation for complex frameworks.",
         ],
     }
 

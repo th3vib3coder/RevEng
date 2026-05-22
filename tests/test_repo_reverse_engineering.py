@@ -47,13 +47,30 @@ fixture-cli = "pkg.cli:main"
     )
     (repo / "pkg" / "cli.py").write_text(
         """
+from pkg.helpers import format_value
 import requests
 
 class Runner:
     pass
 
 def main():
-    return "ok"
+    return format_value("ok")
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (repo / "pkg" / "helpers.py").write_text(
+        """
+def format_value(value: str) -> str:
+    return value.upper()
+""".lstrip(),
+        encoding="utf-8",
+    )
+    (repo / "pkg" / "feature.py").write_text(
+        """
+from .helpers import format_value
+
+def feature():
+    return format_value("feature")
 """.lstrip(),
         encoding="utf-8",
     )
@@ -102,7 +119,7 @@ def test_repo_inventory_detects_languages_manifests_and_plugins(tmp_path: Path) 
 
     payload = json.loads(out.read_text(encoding="utf-8"))
     assert payload["file_count"] >= 8
-    assert payload["languages"]["Python"]["files"] == 2
+    assert payload["languages"]["Python"]["files"] == 4
     assert payload["languages"]["JavaScript"]["files"] == 1
     manifest_paths = {item["path"] for item in payload["manifests"]}
     assert "pyproject.toml" in manifest_paths
@@ -130,6 +147,25 @@ def test_repo_map_extracts_entrypoints_dependencies_routes_and_plugin_surfaces(t
     assert ".codex-plugin/plugin.json" in plugin_paths
     assert ".claude-plugin/plugin.json" in plugin_paths
     assert payload["limitations"]
+
+
+def test_repo_map_builds_internal_python_module_graph(tmp_path: Path) -> None:
+    repo = make_fixture(tmp_path)
+    out = tmp_path / "repo_map.json"
+
+    run_script("repo_map.py", str(repo), "--json-out", str(out))
+
+    payload = json.loads(out.read_text(encoding="utf-8"))
+    graph = payload["module_graph"]
+    modules = {item["module"]: item["path"] for item in graph["modules"]}
+    edges = {(item["from"], item["to"], item["import"]) for item in graph["edges"]}
+    external_imports = {(item["from"], item["import"]) for item in graph["external_imports"]}
+    assert modules["pkg.cli"] == "pkg/cli.py"
+    assert modules["pkg.helpers"] == "pkg/helpers.py"
+    assert ("pkg.cli", "pkg.helpers", "pkg.helpers") in edges
+    assert ("pkg.feature", "pkg.helpers", ".helpers") in edges
+    assert ("pkg.cli", "requests") in external_imports
+    assert not any(edge[2] == "requests" for edge in edges)
 
 
 def test_pyproject_fallback_extracts_multiline_dependencies_without_tomllib() -> None:
@@ -169,5 +205,6 @@ def test_repo_corpus_export_emits_stable_records_with_hashes(tmp_path: Path) -> 
     assert cli_record["sha256"] == expected_hash
     assert "Runner" in cli_record["symbols"]
     assert "main" in cli_record["symbols"]
+    assert "pkg.helpers" in cli_record["imports"]
     assert "requests" in cli_record["imports"]
     assert cli_record["evidence"]

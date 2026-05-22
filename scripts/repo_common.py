@@ -195,8 +195,13 @@ def python_definitions(text: str) -> dict[str, Any] | None:
             for alias in node.names:
                 imports.add(alias.name)
         elif isinstance(node, ast.ImportFrom):
+            prefix = "." * node.level
             if node.module:
-                imports.add(node.module)
+                imports.add(prefix + node.module)
+            elif prefix:
+                for alias in node.names:
+                    if alias.name != "*":
+                        imports.add(prefix + alias.name)
     return {"symbols": sorted(symbols), "imports": sorted(imports), "routes": routes}
 
 
