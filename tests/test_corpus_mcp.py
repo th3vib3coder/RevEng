@@ -18,6 +18,11 @@ def test_module_graph_tool_filters_dependencies() -> None:
             {"from": "pkg.c", "to": "pkg.a", "import": "pkg.a"},
         ],
         "external_imports": [{"from": "pkg.a", "import": "requests"}],
+        "metrics": {
+            "fan_in": {"pkg.a": 1, "pkg.b": 1, "pkg.c": 0},
+            "fan_out": {"pkg.a": 1, "pkg.b": 0, "pkg.c": 1},
+            "cycles": [["pkg.a", "pkg.b"]],
+        },
     }
     result = mcp.tool_module_graph(graph, {"module": "pkg.a", "direction": "dependencies"})
     assert result["isError"] is False
@@ -26,6 +31,49 @@ def test_module_graph_tool_filters_dependencies() -> None:
     assert ("pkg.a", "pkg.b") in edges
     assert ("pkg.c", "pkg.a") not in edges
     assert {item["import"] for item in sc["external_imports"]} == {"requests"}
+    assert sc["metrics"]["fan_in"] == {"pkg.a": 1}
+    assert sc["metrics"]["fan_out"] == {"pkg.a": 1}
+    assert sc["metrics"]["cycles"] == [["pkg.a", "pkg.b"]]
+    assert sc["metrics"]["truncated"] is False
+
+
+def test_module_graph_tool_exposes_global_metrics_without_module_filter() -> None:
+    graph = {
+        "edges": [],
+        "external_imports": [],
+        "metrics": {
+            "fan_in": {"pkg.a": 1, "pkg.b": 1},
+            "fan_out": {"pkg.a": 1, "pkg.b": 1},
+            "cycles": [["pkg.a", "pkg.b"]],
+        },
+    }
+    result = mcp.tool_module_graph(graph, {})
+    assert result["isError"] is False
+    assert result["structuredContent"]["metrics"] == {
+        "fan_in": {"pkg.a": 1, "pkg.b": 1},
+        "fan_out": {"pkg.a": 1, "pkg.b": 1},
+        "cycles": [["pkg.a", "pkg.b"]],
+        "truncated": False,
+    }
+
+
+def test_module_graph_tool_caps_global_metrics() -> None:
+    graph = {
+        "edges": [],
+        "external_imports": [],
+        "metrics": {
+            "fan_in": {f"pkg.{index:03d}": index for index in range(60)},
+            "fan_out": {f"pkg.{index:03d}": index for index in range(60)},
+            "cycles": [[f"pkg.{index:03d}", f"pkg.{index + 1:03d}"] for index in range(60)],
+        },
+    }
+    result = mcp.tool_module_graph(graph, {"limit": 10})
+    assert result["isError"] is False
+    metrics = result["structuredContent"]["metrics"]
+    assert len(metrics["fan_in"]) == 10
+    assert len(metrics["fan_out"]) == 10
+    assert len(metrics["cycles"]) == 10
+    assert metrics["truncated"] is True
 
 
 def test_module_graph_tool_errors_when_unavailable() -> None:
@@ -57,6 +105,11 @@ def test_module_graph_over_stdio(tmp_path: Path) -> None:
                 "module_graph": {
                     "edges": [{"from": "pkg.cli", "to": "pkg.helpers", "import": "pkg.helpers"}],
                     "external_imports": [{"from": "pkg.cli", "import": "requests"}],
+                    "metrics": {
+                        "fan_in": {"pkg.cli": 0, "pkg.helpers": 1},
+                        "fan_out": {"pkg.cli": 1, "pkg.helpers": 0},
+                        "cycles": [],
+                    },
                 }
             }
         )
@@ -87,3 +140,6 @@ def test_module_graph_over_stdio(tmp_path: Path) -> None:
     assert call_response["result"]["isError"] is False
     sc = call_response["result"]["structuredContent"]
     assert any(edge["to"] == "pkg.helpers" for edge in sc["edges"])
+    assert sc["metrics"]["fan_out"] == {"pkg.cli": 1}
+    assert sc["metrics"]["cycles"] == []
+    assert sc["metrics"]["truncated"] is False

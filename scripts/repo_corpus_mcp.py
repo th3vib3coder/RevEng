@@ -234,6 +234,46 @@ def tool_corpus_summary(corpus: Path, args: dict[str, Any]) -> dict[str, Any]:
     )
 
 
+def limited_dict(items: dict[Any, Any], limit: int) -> tuple[dict[str, Any], bool]:
+    sorted_items = sorted((str(key), value) for key, value in items.items())
+    return dict(sorted_items[:limit]), len(sorted_items) > limit
+
+
+def module_graph_metrics_view(metrics: Any, module: str | None, limit: int) -> dict[str, Any]:
+    if not isinstance(metrics, dict):
+        return {"fan_in": {}, "fan_out": {}, "cycles": [], "truncated": False}
+    fan_in = metrics.get("fan_in", {})
+    fan_out = metrics.get("fan_out", {})
+    cycles = metrics.get("cycles", [])
+    if not isinstance(fan_in, dict):
+        fan_in = {}
+    if not isinstance(fan_out, dict):
+        fan_out = {}
+    if not isinstance(cycles, list):
+        cycles = []
+    clean_cycles = [
+        [str(item) for item in cycle]
+        for cycle in cycles
+        if isinstance(cycle, list)
+    ]
+    if module is None:
+        fan_in_view, fan_in_truncated = limited_dict(fan_in, limit)
+        fan_out_view, fan_out_truncated = limited_dict(fan_out, limit)
+        return {
+            "fan_in": fan_in_view,
+            "fan_out": fan_out_view,
+            "cycles": clean_cycles[:limit],
+            "truncated": fan_in_truncated or fan_out_truncated or len(clean_cycles) > limit,
+        }
+    filtered_cycles = [cycle for cycle in clean_cycles if module in cycle]
+    return {
+        "fan_in": {module: fan_in.get(module, 0)},
+        "fan_out": {module: fan_out.get(module, 0)},
+        "cycles": filtered_cycles[:limit],
+        "truncated": len(filtered_cycles) > limit,
+    }
+
+
 def tool_module_graph(module_graph: dict[str, Any] | None, args: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(module_graph, dict):
         return tool_error(
@@ -274,6 +314,7 @@ def tool_module_graph(module_graph: dict[str, Any] | None, args: dict[str, Any])
         {
             "edges": page,
             "external_imports": external,
+            "metrics": module_graph_metrics_view(module_graph.get("metrics"), module, limit),
             "module": module,
             "direction": direction,
             "nextCursor": next_cursor,

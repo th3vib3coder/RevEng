@@ -206,7 +206,7 @@ The server exposes:
 - `reveng.search_corpus`
 - `reveng.get_record`
 - `reveng.list_symbols`
-- `reveng.module_graph` (requires `--repo-map repo_map.json`)
+- `reveng.module_graph` (requires `--repo-map repo_map.json`; returns internal edges, external imports, hard-capped fan-in/fan-out metrics, and cycles)
 
 Pass `--repo-map case/repo_map.json` to also enable module-graph queries:
 

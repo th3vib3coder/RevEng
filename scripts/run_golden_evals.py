@@ -35,9 +35,12 @@ def run_script(script: str, *args: str | Path) -> subprocess.CompletedProcess[st
 
 
 class McpSession:
-    def __init__(self, corpus: Path) -> None:
+    def __init__(self, corpus: Path, repo_map: Path | None = None) -> None:
+        command = [sys.executable, str(SCRIPT_DIR / "repo_corpus_mcp.py"), "--corpus", str(corpus)]
+        if repo_map is not None:
+            command.extend(["--repo-map", str(repo_map)])
         self.process = subprocess.Popen(
-            [sys.executable, str(SCRIPT_DIR / "repo_corpus_mcp.py"), "--corpus", str(corpus)],
+            command,
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
@@ -240,7 +243,7 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
     require("smuggled_symbol" not in records["pkg/cli.py"]["symbols"], "AST symbols leaked a docstring def")
     require("smuggled_import" not in records["pkg/cli.py"]["imports"], "AST imports leaked a docstring import")
 
-    mcp = McpSession(corpus_out)
+    mcp = McpSession(corpus_out, map_out)
     try:
         init = mcp.request("initialize", {"protocolVersion": "2025-11-25", "capabilities": {}, "clientInfo": {"name": "golden", "version": "0"}})
         require(init["result"]["capabilities"]["tools"]["listChanged"] is False, "MCP initialize did not expose tools capability")
@@ -261,6 +264,16 @@ def eval_repo_analysis(workdir: Path) -> dict[str, Any]:
             {"name": "reveng.search_corpus", "arguments": {"query": "x", "limit": 5000}},
         )["result"]
         require(schema_error["isError"] is True, "MCP invalid arguments were not tool-visible errors")
+        graph = mcp.request(
+            "tools/call",
+            {"name": "reveng.module_graph", "arguments": {"module": "pkg.cli", "direction": "dependencies"}},
+        )["result"]
+        require(graph["isError"] is False, "MCP module_graph returned error")
+        graph_metrics = graph["structuredContent"]["metrics"]
+        require(graph_metrics["fan_out"] == {"pkg.cli": 1}, f"MCP module_graph fan_out missing: {graph_metrics}")
+        require(graph_metrics["fan_in"] == {"pkg.cli": 0}, f"MCP module_graph fan_in missing: {graph_metrics}")
+        require(graph_metrics["cycles"] == [], f"MCP module_graph cycles unexpected: {graph_metrics}")
+        require(graph_metrics["truncated"] is False, f"MCP module_graph metrics unexpectedly truncated: {graph_metrics}")
     finally:
         mcp.close()
 

@@ -59,6 +59,6 @@ Tools:
 - `reveng.search_corpus`: search path, summary, symbols, imports, and evidence with `cursor` and hard-capped `limit`.
 - `reveng.get_record`: retrieve one compact record by repository-relative path.
 - `reveng.list_symbols`: list symbol hints with cursor pagination.
-- `reveng.module_graph`: query the Python module dependency graph (internal edges + external imports) from `repo_map.json`; read-only, cursor-paginated, requires the server started with `--repo-map`.
+- `reveng.module_graph`: query the Python module dependency graph (internal edges, external imports, and hard-capped `metrics` fan-in/fan-out/cycles with `truncated`) from `repo_map.json`; read-only, cursor-paginated, requires the server started with `--repo-map`.
 
 Tool results return compact `content` text plus full `structuredContent`. Argument validation errors are returned as tool-visible `isError: true` results with a structured error object so an agent can self-correct without losing protocol state.
