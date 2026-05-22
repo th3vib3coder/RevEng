@@ -67,6 +67,27 @@ def test_static_triage_rejects_non_positive_max_read_bytes(tmp_path: Path) -> No
     assert "positive" in result.stderr.lower()
 
 
+def test_repo_corpus_export_rejects_non_positive_max_file_bytes(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / "a.py").write_text("x = 1\n", encoding="utf-8")
+    out = tmp_path / "corpus.jsonl"
+
+    result = run_script(
+        "repo_corpus_export.py",
+        str(repo),
+        "--jsonl-out",
+        str(out),
+        "--max-file-bytes",
+        "-1",
+        check=False,
+    )
+
+    assert result.returncode != 0
+    assert not out.exists()
+    assert "positive" in result.stderr.lower()
+
+
 def test_repo_scanners_do_not_follow_symlinked_files(tmp_path: Path) -> None:
     repo = tmp_path / "repo"
     repo.mkdir()

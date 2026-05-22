@@ -175,6 +175,8 @@ def classify_kind(root: Path, path: Path) -> str:
         return "plugin_manifest"
     if name in MANIFEST_NAMES:
         return "manifest"
+    if name.startswith(".env"):
+        return "config"
     if lower_rel.startswith(".github/workflows/") or name in {"Dockerfile", "docker-compose.yml", "docker-compose.yaml"}:
         return "config"
     if lower_rel.startswith("docs/") or path.suffix.lower() in {".md", ".rst"}:
@@ -208,4 +210,3 @@ def line_evidence(text: str, needle: str, limit: int = 3) -> list[dict[str, Any]
             if len(evidence) >= limit:
                 break
     return evidence
-

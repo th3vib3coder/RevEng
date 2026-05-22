@@ -23,6 +23,13 @@ IMPORT_PATTERNS = [
 ]
 
 
+def positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed <= 0:
+        raise argparse.ArgumentTypeError("value must be a positive integer")
+    return parsed
+
+
 def extract_symbols(text: str) -> list[str]:
     symbols: set[str] = set()
     for pattern in SYMBOL_PATTERNS:
@@ -95,7 +102,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="Export repository corpus as JSONL")
     parser.add_argument("repo", help="Repository directory to inspect")
     parser.add_argument("--jsonl-out", required=True, help="Write corpus JSONL to this path")
-    parser.add_argument("--max-file-bytes", type=int, default=500_000)
+    parser.add_argument("--max-file-bytes", type=positive_int, default=500_000)
     args = parser.parse_args()
 
     records = build_records(Path(args.repo), args.max_file_bytes)

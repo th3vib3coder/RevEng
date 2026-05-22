@@ -268,6 +268,12 @@ Run all tests:
 python3 -m pytest tests -q
 ```
 
+Run end-to-end golden evaluations:
+
+```bash
+python3 scripts/run_golden_evals.py
+```
+
 Validate the Codex plugin manifest:
 
 ```bash
@@ -284,6 +290,7 @@ The test suite covers:
 - Android API scan
 - Ghidra wrapper behavior outside Ghidra
 - absence of local absolute paths in shipped files
+- golden end-to-end workflow invariants for repository analysis, binary triage, IOC extraction, and Android API scanning
 
 ## Limitations
 
